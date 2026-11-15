@@ -1,0 +1,8 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# Optional: copy to ~/.termux/boot/start-monarch and make executable.
+# Requires Termux:Boot, tmux, and a private .env file already configured.
+PROJECT_DIR="$HOME/Monarch"
+cd "$PROJECT_DIR" || exit 1
+if ! tmux has-session -t monarch 2>/dev/null; then
+  tmux new-session -d -s monarch "cd '$PROJECT_DIR' && '$PROJECT_DIR/.venv/bin/python' -m monarchbot.main"
+fi
