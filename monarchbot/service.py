@@ -849,7 +849,7 @@ class GameService:
                 "coins": con.execute("SELECT COALESCE(SUM(coins),0) FROM players").fetchone()[0],
             }
 
-    def admin_grant(self, player_id: int, amount: int) -> None:
+    def admin_grant(self, player_id: int, amount: int) -> bool:
         if not 1 <= amount <= 100_000:
             raise GameError("Amount must be between 1 and 100,000 coins.")
         with self.db.transaction() as con:
@@ -857,7 +857,7 @@ class GameService:
             self._add_coins(con, player_id, amount)
             return True
 
-    def admin_ban(self, target_id: int, reason: str, admin_id: int) -> None:
+    def admin_ban(self, target_id: int, reason: str, admin_id: int) -> bool:
         if target_id <= 0:
             raise GameError("Target Telegram ID must be positive.")
         reason = " ".join(reason.split())[:160] or "No reason provided"
@@ -883,7 +883,7 @@ class GameService:
                 )
             return True
 
-    def admin_unban(self, target_id: int) -> None:
+    def admin_unban(self, target_id: int) -> bool:
         with self.db.transaction() as con:
             cur = con.execute("DELETE FROM banned_players WHERE telegram_id=?", (target_id,))
             if cur.rowcount == 0:

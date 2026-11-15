@@ -23,7 +23,7 @@ Edit `.env` locally and set `BOT_TOKEN`. Optionally set `ADMIN_IDS` to comma-sep
 python -m monarchbot.main
 ```
 
-The SQLite database is created at `data/monarch.sqlite3` by default. Change `DATABASE_PATH` to choose another persistent path. Run exactly one long-polling process per bot token. For Docker, use a persistent named volume and inject secrets at runtime, for example `docker volume create monarch_data` followed by `docker run -d --name monarch --restart unless-stopped --env-file .env --mount source=monarch_data,target=/app/data monarch:latest`. The image runs as UID 10001; if you use a host bind mount instead, make sure the mounted directory is writable by UID 10001. Prefer your platform's secret store over a plain Docker env file on shared machines.
+The SQLite database is created at `data/monarch.sqlite3` by default. Change `DATABASE_PATH` to choose another persistent path. Run exactly one long-polling process per bot token. For Docker, build with `docker build -t monarch:latest .`, then use a persistent named volume and inject secrets at runtime, for example `docker volume create monarch_data` followed by `docker run -d --name monarch --restart unless-stopped --env-file .env --mount source=monarch_data,target=/app/data monarch:latest`. The image runs as UID 10001; if you use a host bind mount instead, make sure the mounted directory is writable by UID 10001. Prefer your platform's secret store over a plain Docker env file on shared machines.
 
 ## Android Termux and tmux
 
