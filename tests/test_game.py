@@ -33,13 +33,20 @@ def test_registration_is_idempotent_and_grants_starter_inventory(game):
 def test_daily_streak_energy_and_duplicate_claim(game):
     service, clock, _ = game
     register(game)
+    before = service.daily_status(101)
+    assert not before["claimed_today"] and before["next_streak"] == 1
     first = service.daily(101)
     assert first["coins"] == 75 and first["streak"] == 1
+    after = service.daily_status(101)
+    assert after["claimed_today"] and after["streak"] == 1 and after["energy"] == 100
     with pytest.raises(GameError, match="already claimed"):
         service.daily(101)
     clock[0] += timedelta(days=1)
+    assert service.daily_status(101)["next_streak"] == 2
     second = service.daily(101)
     assert second["coins"] == 80 and second["streak"] == 2
+    clock[0] += timedelta(days=2)
+    assert service.daily_status(101)["next_streak"] == 1
 
 
 def test_class_can_be_chosen_once_and_harder_dungeon_has_level_gate(game):

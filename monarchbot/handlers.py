@@ -14,7 +14,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from .catalog import CLASSES, DUNGEONS
+from .catalog import CLASSES, COMPANION_EXTRACT_COST, COMPANIONS, DUNGEONS, ITEMS
 from .config import Settings
 from .marketplace import MarketplaceService
 from .service import GameError, GameService
@@ -179,6 +179,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/class [vanguard|assassin|arcanist] — choose your awakening once\n"
         "/battle [gate|rift|abyss] — enter a turn-based dungeon\n/battle_status — recover your active battle screen\n"
         "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
+        "/daily_status — check today's claim and streak\n/codex [classes|dungeons|items|companions] — browse game content\n"
         "/shop — view items\n/buy <item_id> [qty] — buy items\n/inventory — view items\n/use energy_shard — restore energy\n"
         "/leaderboard — top hunters\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n"
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
@@ -229,6 +230,51 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             f"Daily reward: {result['coins']} coins, +{result['energy_gained']} energy. Streak: {result['streak']} day(s)."
         )
+
+
+@_protected
+async def daily_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["game"].daily_status, _uid(update))
+    if result:
+        claim = "Already claimed today." if result["claimed_today"] else "Available now with /daily."
+        await update.effective_message.reply_text(
+            f"DAILY STATUS\n{claim}\nCurrent streak: {result['streak']} day(s)\n"
+            f"If you claim today: {result['next_streak']} day(s)\nEnergy: {result['energy']}/{result['max_energy']}"
+        )
+
+
+@_protected
+async def codex(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    category = context.args[0].lower() if context.args else "all"
+    if len(context.args) > 1 or category not in {"all", "classes", "dungeons", "items", "companions"}:
+        raise GameError("Usage: /codex [classes|dungeons|items|companions].")
+    sections = {
+        "classes": "AWAKENING CLASSES\n"
+        + "\n".join(
+            f"{key} — {value['name']}: {value['skill']} · {value['hp']} HP · {value['attack']} ATK · {value['mana']} Mana"
+            for key, value in CLASSES.items()
+        ),
+        "dungeons": "DUNGEONS\n"
+        + "\n".join(
+            f"{key} — {value['name']} · level {minimum} · {value['energy']} energy · {value['xp']} XP / {value['coins']} coins / {value['essence']} essence"
+            for (key, value), minimum in zip(DUNGEONS.items(), (1, 3, 8), strict=True)
+        ),
+        "items": "SUPPLIES\n"
+        + "\n".join(
+            f"{key} — {value['name']}: {value['description']} · {value['price']} coins"
+            for key, value in ITEMS.items()
+        ),
+        "companions": f"ECHO COMPANIONS · extraction costs {COMPANION_EXTRACT_COST} essence\n"
+        + "\n".join(
+            f"{key} — {value['name']} ({value['rarity']}): +{value['hp']} HP, +{value['attack']} ATK"
+            for key, value in COMPANIONS.items()
+        ),
+    }
+    if category == "all":
+        text = "\n\n".join(sections.values())
+    else:
+        text = sections[category]
+    await update.effective_message.reply_text(text)
 
 
 @_protected
@@ -687,6 +733,8 @@ COMMANDS = {
     "profile": profile,
     "class": choose_class,
     "daily": daily,
+    "daily_status": daily_status,
+    "codex": codex,
     "quests": quests,
     "quest_claim": quest_claim,
     "battle": battle,
@@ -727,6 +775,8 @@ PUBLIC_COMMANDS = [
     ("profile", "View your hunter stats"),
     ("class", "Choose your awakening class"),
     ("daily", "Claim daily reward"),
+    ("daily_status", "Check reward and streak"),
+    ("codex", "Browse classes, dungeons and items"),
     ("quests", "View daily objectives"),
     ("quest_claim", "Claim a daily objective"),
     ("battle", "Enter a turn-based dungeon"),

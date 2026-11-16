@@ -53,7 +53,7 @@ Detach without stopping the bot with **Ctrl+B**, then **D**. Return to its termi
 
 ## Commands
 
-Use `/start` to create the player profile and `/menu` for the button-based game hub. `/class` lists awakening paths; `/class vanguard`, `/class assassin`, or `/class arcanist` chooses one once. `/profile` shows stats. `/daily`, `/quests`, and `/quest_claim <quest_id>` handle daily rewards.
+Use `/start` to create the player profile and `/menu` for the button-based game hub. `/class` lists awakening paths; `/class vanguard`, `/class assassin`, or `/class arcanist` chooses one once. `/profile` shows stats. `/daily_status` checks whether today's reward is claimed, your current and next streak, and energy; `/daily` claims it. `/quests` and `/quest_claim <quest_id>` handle objectives. `/codex` lists classes, dungeons, supplies, and companions; narrow it with `/codex classes`, `/codex dungeons`, `/codex items`, or `/codex companions`.
 
 `/battle gate`, `/battle rift`, or `/battle abyss` starts a persistent encounter. Rift requires level 3 and Abyss requires level 8. During combat, tap **Quick Attack**, **Guard**, **Awakening Skill**, **Healing Tonic**, **Mana Vial**, or **Retreat**. `/battle_status` recreates the current screen if needed. A battle expires after 30 minutes; energy is spent on entry and is not refunded for defeat or retreat.
 

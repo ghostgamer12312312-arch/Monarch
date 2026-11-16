@@ -317,6 +317,29 @@ class GameService:
             )
             return {"coins": coins, "streak": streak, "energy_gained": energy - before, "energy": energy}
 
+    def daily_status(self, player_id: int) -> dict:
+        today = self._today()
+        yesterday = (self.clock().astimezone(UTC).date() - timedelta(days=1)).isoformat()
+        with self.db.reader() as con:
+            player = self._require_player(con, player_id)
+            claimed_today = player["daily_date"] == today
+            current_streak = int(player["daily_streak"])
+            next_streak = (
+                current_streak
+                if claimed_today
+                else current_streak + 1
+                if player["daily_date"] == yesterday
+                else 1
+            )
+            return {
+                "claimed_today": claimed_today,
+                "streak": current_streak,
+                "next_streak": next_streak,
+                "energy": int(player["energy"]),
+                "max_energy": int(player["max_energy"]),
+                "daily_date": player["daily_date"],
+            }
+
     def quests(self, player_id: int) -> list[dict]:
         today = self._today()
         definitions = (

@@ -21,6 +21,8 @@ def test_all_commands_and_interactive_callbacks_are_registered(game):
     assert registered == set(COMMANDS)
     assert {name for name, _ in PUBLIC_COMMANDS} <= registered
     assert {
+        "codex",
+        "daily_status",
         "quest_claim",
         "guild_leave",
         "guild_disband",
