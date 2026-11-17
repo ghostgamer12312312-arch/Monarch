@@ -183,7 +183,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
         "/daily_status — check today's claim and streak\n/codex [classes|dungeons|items|companions] — browse game content\n"
         "/shop — view items\n/buy <item_id> [qty] — buy items\n/inventory — view items\n/use energy_shard — restore energy\n"
-        "/leaderboard — top hunters\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n"
+        "/leaderboard — top hunters\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n/guild_promote <id>\n/guild_demote <id>\n/guild_kick <id>\n/guild_rename <name>\n"
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
         "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
         "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
@@ -641,6 +641,50 @@ async def guild_donate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 @_protected
+async def guild_promote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        raise GameError("Usage: /guild_promote <player_id>.")
+    role = await _call(
+        update, context.application.bot_data["game"].guild_promote, _uid(update), int(context.args[0])
+    )
+    if role:
+        await update.effective_message.reply_text(f"Player promoted to {role}.")
+
+
+@_protected
+async def guild_demote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        raise GameError("Usage: /guild_demote <player_id>.")
+    role = await _call(
+        update, context.application.bot_data["game"].guild_demote, _uid(update), int(context.args[0])
+    )
+    if role:
+        await update.effective_message.reply_text("Officer demoted to member.")
+
+
+@_protected
+async def guild_kick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        raise GameError("Usage: /guild_kick <player_id>.")
+    target = await _call(
+        update, context.application.bot_data["game"].guild_kick, _uid(update), int(context.args[0])
+    )
+    if target:
+        await update.effective_message.reply_text(f"Player {target} removed from the guild.")
+
+
+@_protected
+async def guild_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        raise GameError("Usage: /guild_rename <new name>.")
+    name = await _call(
+        update, context.application.bot_data["game"].guild_rename, _uid(update), " ".join(context.args)
+    )
+    if name:
+        await update.effective_message.reply_text(f"Guild renamed to {name}.")
+
+
+@_protected
 async def raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, context.application.bot_data["game"].raid_status)
     if result is not None:
@@ -854,6 +898,10 @@ COMMANDS = {
     "guild_leave": guild_leave,
     "guild_disband": guild_disband,
     "guild_donate": guild_donate,
+    "guild_promote": guild_promote,
+    "guild_demote": guild_demote,
+    "guild_kick": guild_kick,
+    "guild_rename": guild_rename,
     "raid": raid,
     "raid_attack": raid_attack,
     "tournament": tournament,
@@ -902,6 +950,10 @@ PUBLIC_COMMANDS = [
     ("guild_leave", "Leave your guild"),
     ("guild_disband", "Disband your guild"),
     ("guild_donate", "Donate guild XP"),
+    ("guild_promote", "Promote a guild officer"),
+    ("guild_demote", "Demote a guild officer"),
+    ("guild_kick", "Remove a guild member"),
+    ("guild_rename", "Rename your guild"),
     ("raid", "View the world raid"),
     ("raid_attack", "Attack the world boss"),
     ("tournament", "Weekly arena standings"),

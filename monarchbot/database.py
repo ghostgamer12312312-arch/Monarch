@@ -152,6 +152,16 @@ class Database:
                     joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members(guild_id);
+                CREATE TABLE IF NOT EXISTS guild_roles (
+                    guild_id INTEGER NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+                    player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    role TEXT NOT NULL CHECK(role IN ('leader','officer','member')),
+                    PRIMARY KEY(guild_id, player_id)
+                );
+                INSERT OR IGNORE INTO guild_roles(guild_id,player_id,role)
+                    SELECT id,leader_id,'leader' FROM guilds;
+                INSERT OR IGNORE INTO guild_roles(guild_id,player_id,role)
+                    SELECT guild_id,player_id,'member' FROM guild_members;
                 CREATE TABLE IF NOT EXISTS raid_state (
                     id INTEGER PRIMARY KEY CHECK(id=1),
                     name TEXT NOT NULL,
@@ -231,6 +241,10 @@ class Database:
                     damage INTEGER NOT NULL DEFAULT 0 CHECK(damage >= 0),
                     hits INTEGER NOT NULL DEFAULT 0 CHECK(hits >= 0),
                     PRIMARY KEY(guild_id, player_id)
+                );
+                CREATE TABLE IF NOT EXISTS guild_raid_resets (
+                    week TEXT PRIMARY KEY,
+                    reset_at INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS player_teams (
                     player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,

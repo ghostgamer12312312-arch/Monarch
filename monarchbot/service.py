@@ -708,6 +708,10 @@ class GameService:
                 raise
             guild_id = int(cur.lastrowid)
             con.execute("INSERT INTO guild_members(player_id,guild_id) VALUES(?,?)", (player_id, guild_id))
+            con.execute(
+                "INSERT INTO guild_roles(guild_id,player_id,role) VALUES(?,?,?)",
+                (guild_id, player_id, "leader"),
+            )
             return {"id": guild_id, "name": name, "level": 1}
 
     def join_guild(self, player_id: int, guild_id: int) -> dict:
@@ -724,6 +728,10 @@ class GameService:
             if count >= GUILD_MAX_MEMBERS:
                 raise GameError("That guild is full.")
             con.execute("INSERT INTO guild_members(player_id,guild_id) VALUES(?,?)", (player_id, guild_id))
+            con.execute(
+                "INSERT INTO guild_roles(guild_id,player_id,role) VALUES(?,?,?)",
+                (guild_id, player_id, "member"),
+            )
             return dict(guild)
 
     def guild_info(self, player_id: int) -> dict:
@@ -758,6 +766,10 @@ class GameService:
             if int(guild["leader_id"]) == player_id:
                 raise GameError("Guild leaders must use /guild_disband.")
             con.execute("DELETE FROM guild_members WHERE player_id=?", (player_id,))
+            con.execute(
+                "DELETE FROM guild_roles WHERE guild_id=? AND player_id=?",
+                (membership["guild_id"], player_id),
+            )
             return str(guild["name"])
 
     def disband_guild(self, player_id: int) -> str:
@@ -768,6 +780,83 @@ class GameService:
                 raise GameError("Only a guild leader can disband a guild.")
             con.execute("DELETE FROM guilds WHERE id=?", (guild["id"],))
             return str(guild["name"])
+
+    def _guild_role(self, con, player_id: int) -> tuple[int, str]:
+        row = con.execute("SELECT guild_id,role FROM guild_roles WHERE player_id=?", (player_id,)).fetchone()
+        if row is None:
+            raise GameError("You are not in a guild.")
+        return int(row["guild_id"]), str(row["role"])
+
+    def guild_promote(self, actor_id: int, target_id: int) -> str:
+        with self.db.transaction() as con:
+            self._require_player(con, actor_id)
+            self._require_player(con, target_id)
+            guild_id, role = self._guild_role(con, actor_id)
+            if role != "leader":
+                raise GameError("Only the guild leader can promote officers.")
+            target = con.execute(
+                "SELECT role FROM guild_roles WHERE guild_id=? AND player_id=?", (guild_id, target_id)
+            ).fetchone()
+            if target is None:
+                raise GameError("That hunter is not in your guild.")
+            con.execute(
+                "UPDATE guild_roles SET role='officer' WHERE guild_id=? AND player_id=?",
+                (guild_id, target_id),
+            )
+            return "officer"
+
+    def guild_demote(self, actor_id: int, target_id: int) -> str:
+        with self.db.transaction() as con:
+            self._require_player(con, actor_id)
+            self._require_player(con, target_id)
+            guild_id, role = self._guild_role(con, actor_id)
+            if role != "leader":
+                raise GameError("Only the guild leader can demote officers.")
+            target = con.execute(
+                "SELECT role FROM guild_roles WHERE guild_id=? AND player_id=?", (guild_id, target_id)
+            ).fetchone()
+            if target is None:
+                raise GameError("That hunter is not in your guild.")
+            con.execute(
+                "UPDATE guild_roles SET role='member' WHERE guild_id=? AND player_id=? AND role='officer'",
+                (guild_id, target_id),
+            )
+            return "member"
+
+    def guild_kick(self, actor_id: int, target_id: int) -> str:
+        with self.db.transaction() as con:
+            self._require_player(con, actor_id)
+            self._require_player(con, target_id)
+            guild_id, role = self._guild_role(con, actor_id)
+            if role not in {"leader", "officer"}:
+                raise GameError("Only guild leaders and officers can remove members.")
+            target = con.execute(
+                "SELECT role FROM guild_roles WHERE guild_id=? AND player_id=?", (guild_id, target_id)
+            ).fetchone()
+            if target is None:
+                raise GameError("That hunter is not in your guild.")
+            if target["role"] in {"leader", "officer"} and role != "leader":
+                raise GameError("Officers cannot remove guild officers.")
+            con.execute("DELETE FROM guild_members WHERE guild_id=? AND player_id=?", (guild_id, target_id))
+            con.execute("DELETE FROM guild_roles WHERE guild_id=? AND player_id=?", (guild_id, target_id))
+            return str(target_id)
+
+    def guild_rename(self, actor_id: int, name: str) -> str:
+        name = " ".join(name.split())
+        if not 3 <= len(name) <= 24 or not re.fullmatch(r"[\w -]+", name, flags=re.UNICODE):
+            raise GameError("Guild names must be 3–24 letters, numbers, spaces, '_' or '-'.")
+        with self.db.transaction() as con:
+            self._require_player(con, actor_id)
+            guild_id, role = self._guild_role(con, actor_id)
+            if role != "leader":
+                raise GameError("Only the guild leader can rename the guild.")
+            try:
+                con.execute("UPDATE guilds SET name=? WHERE id=?", (name, guild_id))
+            except Exception as exc:
+                if "UNIQUE" in str(exc).upper():
+                    raise GameError("That guild name is already taken.") from None
+                raise
+            return name
 
     def donate_guild(self, player_id: int, amount: int) -> dict:
         if not GUILD_DONATION_MIN <= amount <= GUILD_DONATION_MAX or amount % 10:

@@ -202,6 +202,18 @@ class SocialService:
                 "top": top,
             }
 
+    def reset_weekly_raids(self) -> int:
+        """Reset every guild raid once per UTC ISO week; safe to call hourly."""
+        week = self.game._current_week()
+        now = int(self.game.epoch())
+        with self.db.transaction() as con:
+            if con.execute("SELECT 1 FROM guild_raid_resets WHERE week=?", (week,)).fetchone():
+                return 0
+            con.execute("UPDATE guild_raid_state SET hp=max_hp,cycle=cycle+1,updated_at=?", (now,))
+            con.execute("DELETE FROM guild_raid_contributions")
+            con.execute("INSERT INTO guild_raid_resets(week,reset_at) VALUES(?,?)", (week, now))
+            return con.execute("SELECT COUNT(*) FROM guild_raid_state").fetchone()[0]
+
     def add_team_member(self, player_id: int, member_id: int, slot: int) -> dict:
         if not 1 <= slot <= 6:
             raise GameError("Team slots are numbered 1 through 6.")

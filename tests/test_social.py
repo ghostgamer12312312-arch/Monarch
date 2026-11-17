@@ -42,3 +42,19 @@ def test_guild_raid_tracks_contribution_and_team(game):
     second = social.guild_raid(202)
     assert first["damage"] > 0 and second["damage"] > 0
     assert {row["player_id"] for row in second["top"]} == {101, 202}
+
+
+def test_guild_officers_and_weekly_reset_are_idempotent(game):
+    service, _, _ = game
+    service.register(101, "one", "One")
+    service.register(202, "two", "Two")
+    social = SocialService(service)
+    guild = service.create_guild(101, "Wardens")
+    service.join_guild(202, guild["id"])
+    assert service.guild_promote(101, 202) == "officer"
+    assert service.guild_demote(101, 202) == "member"
+    assert service.guild_kick(101, 202) == "202"
+    # Exercise the reset marker twice using the leader who remains in the guild.
+    social.guild_raid(101)
+    assert social.reset_weekly_raids() == 1
+    assert social.reset_weekly_raids() == 0
