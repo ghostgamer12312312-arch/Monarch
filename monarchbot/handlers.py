@@ -18,6 +18,7 @@ from .catalog import CLASSES, COMPANION_EXTRACT_COST, COMPANIONS, DUNGEONS, ITEM
 from .config import Settings
 from .marketplace import MarketplaceService
 from .service import GameError, GameService
+from .social import SocialService
 from .tournament import TournamentService
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ def main_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Arena", callback_data="m:tournament"),
                 InlineKeyboardButton("Market", callback_data="m:market"),
             ],
+            [InlineKeyboardButton("Codex", callback_data="m:codex")],
             [InlineKeyboardButton("Echo Companions", callback_data="m:companions")],
         ]
     )
@@ -274,7 +276,106 @@ async def codex(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text = "\n\n".join(sections.values())
     else:
         text = sections[category]
-    await update.effective_message.reply_text(text)
+    await update.effective_message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Classes", callback_data="c:classes"),
+                    InlineKeyboardButton("Dungeons", callback_data="c:dungeons"),
+                ],
+                [
+                    InlineKeyboardButton("Items", callback_data="c:items"),
+                    InlineKeyboardButton("Companions", callback_data="c:companions"),
+                ],
+            ]
+        ),
+    )
+
+
+@_protected
+async def duel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        raise GameError("Usage: /duel <player_id>.")
+    result = await _call(
+        update, context.application.bot_data["social"].challenge, _uid(update), int(context.args[0])
+    )
+    if result:
+        await update.effective_message.reply_text(
+            f"Duel challenge #{result['id']} sent. It expires in {result['expires']} minutes; opponent uses /duel_accept {result['id']}."
+        )
+
+
+@_protected
+async def duel_accept(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1:
+        raise GameError("Usage: /duel_accept <challenge_id>.")
+    result = await _call(update, context.application.bot_data["social"].accept, _uid(update), context.args[0])
+    if result:
+        await update.effective_message.reply_text(
+            f"Duel complete. Winner: {result.winner_id}; +{result.reward} coins. Ratings: {result.winner_rating} / {result.loser_rating}."
+        )
+
+
+@_protected
+async def arena(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    rows = await _call(update, context.application.bot_data["social"].leaderboard)
+    if rows is not None:
+        await update.effective_message.reply_text(
+            "PVP ARENA\n"
+            + (
+                "\n".join(
+                    f"{i}. {r['display_name']} — {r['rating']} rating · {r['wins']}W/{r['losses']}L"
+                    for i, r in enumerate(rows, 1)
+                )
+                or "No rated duels yet."
+            )
+        )
+
+
+@_protected
+async def tournament_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["social"].tournament_slots, _uid(update))
+    if result is not None:
+        text = f"10-SLOT TOURNAMENT · {result['week']}\n" + (
+            "\n".join(f"Slot {r['slot']}: {r['display_name']}" for r in result["slots"]) or "No entrants yet."
+        )
+        await update.effective_message.reply_text(text + "\nJoin with /tournament_join.")
+
+
+@_protected
+async def guild_raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["social"].guild_raid, _uid(update))
+    if result:
+        await update.effective_message.reply_text(
+            f"GUILD RAID · {result['boss']} · Cycle {result['cycle']}\nYour damage: {result['damage']}\nBoss HP: {result['hp']:,}/{result['max_hp']:,}\n"
+            + "\n".join(f"{i}. {x['display_name']} — {x['damage']:,}" for i, x in enumerate(result["top"], 1))
+        )
+
+
+@_protected
+async def team(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    social = context.application.bot_data["social"]
+    if context.args:
+        if len(context.args) != 2 or not all(x.isdigit() for x in context.args):
+            raise GameError("Usage: /team <player_id> <slot 1-6>.")
+        result = await _call(
+            update, social.add_team_member, _uid(update), int(context.args[0]), int(context.args[1])
+        )
+        if result:
+            await update.effective_message.reply_text(
+                f"Team slot {result['slot']} set to player {result['member_id']}."
+            )
+        return
+    rows = await _call(update, social.team, _uid(update))
+    if rows is not None:
+        await update.effective_message.reply_text(
+            "TEAM (up to 6)\n"
+            + (
+                "\n".join(f"Slot {r['slot']}: {r['display_name']} ({r['member_id']})" for r in rows)
+                or "Empty. Add with /team <player_id> <slot>."
+            )
+        )
 
 
 @_protected
@@ -583,10 +684,10 @@ async def tournament(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 @_protected
 async def tournament_join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    result = await _call(update, context.application.bot_data["tournament"].join, _uid(update))
+    result = await _call(update, context.application.bot_data["social"].join_tournament, _uid(update))
     if result:
         await update.effective_message.reply_text(
-            f"Entered {result['week']} arena for {result['fee']} coins. Dungeon clears and raid damage now count."
+            f"Entered {result['week']} tournament in slot {result['slot']}/10. Participants: {result['participants']}/10."
         )
 
 
@@ -766,6 +867,12 @@ COMMANDS = {
     "givecoins": givecoins,
     "ban": ban_player,
     "unban": unban_player,
+    "duel": duel,
+    "duel_accept": duel_accept,
+    "arena": arena,
+    "tournament_slots": tournament_slots,
+    "guild_raid": guild_raid,
+    "team": team,
 }
 
 PUBLIC_COMMANDS = [
@@ -804,6 +911,12 @@ PUBLIC_COMMANDS = [
     ("market_list", "List an item for sale"),
     ("market_buy", "Buy a market listing"),
     ("market_cancel", "Cancel a market listing"),
+    ("duel", "Challenge a hunter"),
+    ("duel_accept", "Accept a duel"),
+    ("arena", "PvP rating leaderboard"),
+    ("tournament_slots", "View ten tournament slots"),
+    ("guild_raid", "Attack your guild boss"),
+    ("team", "Manage your six-member team"),
 ]
 
 
@@ -815,6 +928,24 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         text = f"{result['display_name']} · Level {result['level']} · {result['class_name']}\nHP {result['base_hp']} · ATK {result['attack']} · Energy {result['energy']}/{result['max_energy']}"
     elif action == "dungeons":
         text = "Choose a dungeon:\n/battle gate — Crimson Gate\n/battle rift — Forgotten Rift\n/battle abyss — Abyssal Citadel"
+    elif action == "codex":
+        text = "CODEX\nChoose a section below."
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("Classes", callback_data="c:classes"),
+                        InlineKeyboardButton("Dungeons", callback_data="c:dungeons"),
+                    ],
+                    [
+                        InlineKeyboardButton("Items", callback_data="c:items"),
+                        InlineKeyboardButton("Companions", callback_data="c:companions"),
+                    ],
+                ]
+            ),
+        )
+        return
     elif action == "daily":
         result = await asyncio.to_thread(context.application.bot_data["game"].daily, query.from_user.id)
         text = f"Daily reward claimed: {result['coins']} coins and +{result['energy_gained']} energy."
@@ -877,6 +1008,32 @@ async def _menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await query.message.reply_text(text, reply_markup=main_menu())
 
 
+async def _codex_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    category = query.data.split(":", 1)[1]
+    if category not in {"classes", "dungeons", "items", "companions"}:
+        await query.answer("Unknown Codex section.", show_alert=True)
+        return
+    await query.answer()
+    if category == "classes":
+        text = "AWAKENING CLASSES\n" + "\n".join(
+            f"{k} — {v['name']}: {v['skill']}" for k, v in CLASSES.items()
+        )
+    elif category == "dungeons":
+        text = "DUNGEONS\n" + "\n".join(
+            f"{k} — {v['name']} · {v['energy']} energy" for k, v in DUNGEONS.items()
+        )
+    elif category == "items":
+        text = "SUPPLIES\n" + "\n".join(f"{k} — {v['name']}: {v['description']}" for k, v in ITEMS.items())
+    else:
+        text = "ECHO COMPANIONS\n" + "\n".join(
+            f"{k} — {v['name']} ({v['rarity']})" for k, v in COMPANIONS.items()
+        )
+    await query.edit_message_text(
+        text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="m:codex")]])
+    )
+
+
 async def _post_init(application: Application) -> None:
     commands = [BotCommand(name, description) for name, description in PUBLIC_COMMANDS]
     await application.bot.set_my_commands(commands)
@@ -892,9 +1049,11 @@ def build_application(settings: Settings, game: GameService) -> Application:
     application.bot_data["settings"] = settings
     application.bot_data["market"] = MarketplaceService(game)
     application.bot_data["tournament"] = TournamentService(game)
+    application.bot_data["social"] = SocialService(game)
     for name, handler in COMMANDS.items():
         application.add_handler(CommandHandler(name, handler))
     application.add_handler(CallbackQueryHandler(battle_callback, pattern=r"^b:"))
     application.add_handler(CallbackQueryHandler(_menu_callback, pattern=r"^m:"))
+    application.add_handler(CallbackQueryHandler(_codex_callback, pattern=r"^c:"))
     application.add_error_handler(_on_error)
     return application

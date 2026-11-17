@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Database:
@@ -61,7 +61,7 @@ class Database:
             ).fetchone()
             if existing:
                 version = con.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
-                if version is not None and version["value"] != str(SCHEMA_VERSION):
+                if version is not None and int(version["value"]) > SCHEMA_VERSION:
                     raise RuntimeError(
                         f"Database schema version {version['value']} is not supported by this build (expected {SCHEMA_VERSION}). Back up the database before upgrading."
                     )
@@ -192,9 +192,56 @@ class Database:
                     sold_at TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_market_listings ON market_listings(status, expires_at, id);
+                CREATE TABLE IF NOT EXISTS arena_ratings (
+                    player_id INTEGER PRIMARY KEY REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    rating INTEGER NOT NULL DEFAULT 1000 CHECK(rating >= 0),
+                    wins INTEGER NOT NULL DEFAULT 0 CHECK(wins >= 0),
+                    losses INTEGER NOT NULL DEFAULT 0 CHECK(losses >= 0)
+                );
+                CREATE TABLE IF NOT EXISTS duel_challenges (
+                    id TEXT PRIMARY KEY,
+                    challenger_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    opponent_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','declined','completed','expired')),
+                    winner_id INTEGER REFERENCES players(telegram_id),
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_duel_opponent ON duel_challenges(opponent_id,status);
+                CREATE TABLE IF NOT EXISTS tournament_slots (
+                    tournament_week TEXT NOT NULL,
+                    slot INTEGER NOT NULL CHECK(slot BETWEEN 1 AND 10),
+                    player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    wins INTEGER NOT NULL DEFAULT 0 CHECK(wins >= 0),
+                    score INTEGER NOT NULL DEFAULT 0 CHECK(score >= 0),
+                    PRIMARY KEY(tournament_week, slot),
+                    UNIQUE(tournament_week, player_id)
+                );
+                CREATE TABLE IF NOT EXISTS guild_raid_state (
+                    guild_id INTEGER PRIMARY KEY REFERENCES guilds(id) ON DELETE CASCADE,
+                    boss_name TEXT NOT NULL,
+                    hp INTEGER NOT NULL CHECK(hp >= 0),
+                    max_hp INTEGER NOT NULL CHECK(max_hp >= 1),
+                    cycle INTEGER NOT NULL DEFAULT 1 CHECK(cycle >= 1),
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS guild_raid_contributions (
+                    guild_id INTEGER NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+                    player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    damage INTEGER NOT NULL DEFAULT 0 CHECK(damage >= 0),
+                    hits INTEGER NOT NULL DEFAULT 0 CHECK(hits >= 0),
+                    PRIMARY KEY(guild_id, player_id)
+                );
+                CREATE TABLE IF NOT EXISTS player_teams (
+                    player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    slot INTEGER NOT NULL CHECK(slot BETWEEN 1 AND 6),
+                    member_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    PRIMARY KEY(player_id, slot), UNIQUE(player_id, member_id)
+                );
                 INSERT OR IGNORE INTO raid_state(id,name,hp,max_hp,cycle)
                     VALUES(1,'The Rift Sovereign',250000,250000,1);
-                INSERT OR IGNORE INTO schema_meta(key,value) VALUES('schema_version','1');
+                INSERT INTO schema_meta(key,value) VALUES('schema_version','2')
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
                 COMMIT;
                 """
             )
