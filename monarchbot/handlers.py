@@ -187,7 +187,8 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
         "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
         "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
-        "Admin: /admin_stats, /givecoins <player_id> <amount>, /ban <player_id> [reason], /unban <player_id>"
+        "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches\n"
+        "Admin: /admin_stats, /givecoins <player_id> <amount>, /ban <player_id> [reason], /unban <player_id>, /admin_reset_raids, /admin_resolve_matches"
     )
 
 
@@ -341,6 +342,44 @@ async def tournament_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "\n".join(f"Slot {r['slot']}: {r['display_name']}" for r in result["slots"]) or "No entrants yet."
         )
         await update.effective_message.reply_text(text + "\nJoin with /tournament_join.")
+
+
+@_protected
+async def tournament_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["social"].start_tournament, _uid(update))
+    if result:
+        await update.effective_message.reply_text(
+            f"Tournament scheduled: {len(result['matches'])} match(es), random start times within {result['scheduled_within_hours']} hours, and a {result['duration_days']}-day check-in window."
+        )
+
+
+@_protected
+async def tournament_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1:
+        raise GameError("Usage: /tournament_checkin <match_id>.")
+    result = await _call(
+        update, context.application.bot_data["social"].checkin_tournament, _uid(update), context.args[0]
+    )
+    if result:
+        await update.effective_message.reply_text(
+            f"Checked in to match {result['id']}. Status: {result['status']}."
+        )
+
+
+@_protected
+async def tournament_matches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    rows = await _call(update, context.application.bot_data["social"].tournament_matches, _uid(update))
+    if rows is not None:
+        await update.effective_message.reply_text(
+            "TOURNAMENT MATCHES\n"
+            + (
+                "\n".join(
+                    f"{r['id']}: {r['player_a']} vs {r['player_b']} · {r['status']} · check in with /tournament_checkin {r['id']}"
+                    for r in rows
+                )
+                or "No matches scheduled."
+            )
+        )
 
 
 @_protected
@@ -871,6 +910,26 @@ async def unban_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.effective_message.reply_text("Player access restored.")
 
 
+@_protected
+async def admin_reset_raids(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+        raise GameError("Admin only.")
+    count = await _call(update, context.application.bot_data["social"].reset_weekly_raids)
+    if count is not None:
+        await update.effective_message.reply_text(
+            f"Reset {count} guild raid(s), if the current UTC week had not already been reset."
+        )
+
+
+@_protected
+async def admin_resolve_matches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+        raise GameError("Admin only.")
+    count = await _call(update, context.application.bot_data["social"].resolve_tournaments)
+    if count is not None:
+        await update.effective_message.reply_text(f"Resolved {count} due tournament match(es).")
+
+
 COMMANDS = {
     "start": start,
     "help": help_command,
@@ -915,10 +974,15 @@ COMMANDS = {
     "givecoins": givecoins,
     "ban": ban_player,
     "unban": unban_player,
+    "admin_reset_raids": admin_reset_raids,
+    "admin_resolve_matches": admin_resolve_matches,
     "duel": duel,
     "duel_accept": duel_accept,
     "arena": arena,
     "tournament_slots": tournament_slots,
+    "tournament_start": tournament_start,
+    "tournament_checkin": tournament_checkin,
+    "tournament_matches": tournament_matches,
     "guild_raid": guild_raid,
     "team": team,
 }
@@ -967,6 +1031,9 @@ PUBLIC_COMMANDS = [
     ("duel_accept", "Accept a duel"),
     ("arena", "PvP rating leaderboard"),
     ("tournament_slots", "View ten tournament slots"),
+    ("tournament_start", "Schedule tournament matches"),
+    ("tournament_checkin", "Check in to a match"),
+    ("tournament_matches", "View your tournament matches"),
     ("guild_raid", "Attack your guild boss"),
     ("team", "Manage your six-member team"),
 ]

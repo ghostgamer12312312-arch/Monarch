@@ -147,6 +147,129 @@ class SocialService:
             ).fetchall()
             return {"week": week, "slots": [dict(r) for r in rows]}
 
+    def start_tournament(self, player_id: int) -> dict:
+        week = self.game._tournament_week()
+        now = int(self.game.epoch())
+        with self.db.transaction() as con:
+            self.game._require_player(con, player_id)
+            entrants = con.execute(
+                "SELECT player_id FROM tournament_slots WHERE tournament_week=? ORDER BY slot", (week,)
+            ).fetchall()
+            if len(entrants) < 2:
+                raise GameError("At least two hunters must join before the tournament can start.")
+            existing = con.execute(
+                "SELECT COUNT(*) FROM tournament_matches WHERE tournament_week=?", (week,)
+            ).fetchone()[0]
+            if existing:
+                raise GameError("This tournament has already been scheduled.")
+            ids = [int(row["player_id"]) for row in entrants]
+            self.game.rng.shuffle(ids)
+            matches = []
+            for index in range(0, len(ids) - 1, 2):
+                scheduled = now + self.game.rng.randint(0, 86400)
+                match_id = uuid.uuid4().hex[:10]
+                con.execute(
+                    "INSERT INTO tournament_matches(id,tournament_week,round,player_a,player_b,scheduled_at,deadline_at) VALUES(?,?,?,?,?,?,?)",
+                    (match_id, week, 1, ids[index], ids[index + 1], scheduled, scheduled + 172800),
+                )
+                matches.append(match_id)
+            if len(ids) % 2:
+                bye = ids[-1]
+                con.execute(
+                    "UPDATE tournament_slots SET wins=wins+1,score=score+500 WHERE tournament_week=? AND player_id=?",
+                    (week, bye),
+                )
+            return {"week": week, "matches": matches, "scheduled_within_hours": 24, "duration_days": 2}
+
+    def checkin_tournament(self, player_id: int, match_id: str) -> dict:
+        now = int(self.game.epoch())
+        with self.db.transaction() as con:
+            self.game._require_player(con, player_id)
+            match = con.execute(
+                "SELECT * FROM tournament_matches WHERE id=? AND status='scheduled'", (match_id,)
+            ).fetchone()
+            if match is None or player_id not in {int(match["player_a"]), int(match["player_b"])}:
+                raise GameError("That scheduled match is not yours or is already resolved.")
+            if now > int(match["deadline_at"]):
+                raise GameError("The match check-in window has closed.")
+            column = "present_a" if player_id == int(match["player_a"]) else "present_b"
+            con.execute(
+                f"UPDATE tournament_matches SET {column}=1,status=CASE WHEN present_a+present_b+1>=2 THEN 'active' ELSE status END WHERE id=?",
+                (match_id,),
+            )
+            return {
+                "id": match_id,
+                "player_id": player_id,
+                "status": "active"
+                if int(match["present_a"]) + int(match["present_b"]) + 1 >= 2
+                else "scheduled",
+            }
+
+    def resolve_tournaments(self) -> int:
+        now = int(self.game.epoch())
+        resolved = 0
+        with self.db.transaction() as con:
+            due = con.execute(
+                "SELECT * FROM tournament_matches WHERE status IN ('scheduled','active') AND (scheduled_at<=? OR deadline_at<=?)",
+                (now, now),
+            ).fetchall()
+            for match in due:
+                a, b = int(match["player_a"]), int(match["player_b"])
+                present_a, present_b = int(match["present_a"]), int(match["present_b"])
+                if now < int(match["deadline_at"]) and not (present_a and present_b):
+                    continue
+                if present_a and not present_b:
+                    winner = a
+                elif present_b and not present_a:
+                    winner = b
+                elif not present_a and not present_b:
+                    con.execute("UPDATE tournament_matches SET status='cancelled' WHERE id=?", (match["id"],))
+                    resolved += 1
+                    continue
+                else:
+                    winner = a if self._combined_power(con, a) >= self._combined_power(con, b) else b
+                loser = b if winner == a else a
+                con.execute(
+                    "UPDATE tournament_matches SET status='completed',winner_id=? WHERE id=?",
+                    (winner, match["id"]),
+                )
+                con.execute(
+                    "UPDATE tournament_slots SET wins=wins+1,score=score+500 WHERE tournament_week=? AND player_id=?",
+                    (match["tournament_week"], winner),
+                )
+                con.execute(
+                    "UPDATE tournament_slots SET score=score+100 WHERE tournament_week=? AND player_id=?",
+                    (match["tournament_week"], loser),
+                )
+                resolved += 1
+        return resolved
+
+    def tournament_matches(self, player_id: int) -> list[dict]:
+        week = self.game._tournament_week()
+        with self.db.reader() as con:
+            self.game._require_player(con, player_id)
+            return [
+                dict(row)
+                for row in con.execute(
+                    "SELECT * FROM tournament_matches WHERE tournament_week=? AND (player_a=? OR player_b=?) ORDER BY scheduled_at",
+                    (week, player_id, player_id),
+                ).fetchall()
+            ]
+
+    def _combined_power(self, con, player_id: int) -> int:
+        player = con.execute("SELECT * FROM players WHERE telegram_id=?", (player_id,)).fetchone()
+        if player is None:
+            return 0
+        power = self.game._stats_with_companion(con, player)[1]
+        members = con.execute("SELECT member_id FROM player_teams WHERE player_id=?", (player_id,)).fetchall()
+        for member in members:
+            teammate = con.execute(
+                "SELECT * FROM players WHERE telegram_id=?", (member["member_id"],)
+            ).fetchone()
+            if teammate is not None:
+                power += self.game._stats_with_companion(con, teammate)[1]
+        return power
+
     def guild_raid(self, player_id: int) -> dict:
         now = int(self.game.epoch())
         with self.db.transaction() as con:
@@ -164,13 +287,7 @@ class SocialService:
                     (gid, "The Guild Devourer", 100000, 100000, now),
                 )
                 state = con.execute("SELECT * FROM guild_raid_state WHERE guild_id=?", (gid,)).fetchone()
-            damage = max(
-                1,
-                self.game._stats_with_companion(
-                    con, con.execute("SELECT * FROM players WHERE telegram_id=?", (player_id,)).fetchone()
-                )[1]
-                * 2,
-            )
+            damage = max(1, self._combined_power(con, player_id) * 2)
             damage = min(damage, int(state["hp"]))
             con.execute(
                 "UPDATE guild_raid_state SET hp=hp-?,updated_at=? WHERE guild_id=?", (damage, now, gid)

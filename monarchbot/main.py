@@ -14,8 +14,11 @@ def _weekly_reset_loop(social: SocialService, stop: threading.Event) -> None:
     while not stop.wait(3600):
         try:
             count = social.reset_weekly_raids()
+            matches = social.resolve_tournaments()
             if count:
                 logging.getLogger(__name__).info("Reset %s guild raid(s) for the new UTC week", count)
+            if matches:
+                logging.getLogger(__name__).info("Resolved %s tournament match(es)", matches)
         except Exception:
             logging.getLogger(__name__).exception("Weekly guild raid reset failed")
 

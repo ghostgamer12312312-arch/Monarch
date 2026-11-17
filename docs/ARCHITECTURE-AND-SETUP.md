@@ -13,7 +13,7 @@ SQLite is the durable store. Every state-changing operation uses one transaction
 3. `/battle gate|rift|abyss` starts a turn-based encounter; actions are committed atomically.
 4. `/guild_create`, `/guild_join`, and `/guild_donate` build the social layer. `/guild_raid` records every member's damage and ranks the contribution board.
 5. `/duel <player_id>` creates a challenge; the opponent accepts with `/duel_accept <id>`. Ratings update only once on completion.
-6. `/tournament_join` allocates one of ten unique weekly slots; `/tournament_slots` displays the roster.
+6. `/tournament_join` allocates one of ten unique weekly slots; `/tournament_slots` displays the roster. `/tournament_start` creates randomized match times within 24 hours, `/tournament_checkin <match_id>` records attendance, and `/tournament_matches` shows the player's schedule. Matches remain open for two days; a present hunter wins against a no-show, and the hourly maintenance loop resolves due matches.
 7. `/team <player_id> <slot>` maintains up to six configured team positions for future party combat.
 
 ## Termux deployment
@@ -41,6 +41,8 @@ tmux attach -t monarch
 ```
 
 Android may stop background processes after battery optimization, force-stop, reboot, or network changes. A matching Termux:API installation can provide `termux-wake-lock`, but a VPS with persistent storage is safer for 24/7 operation. Run one polling process per token.
+
+The bot's maintenance thread checks once per hour. It resolves due tournament matches and calls the idempotent UTC-week guild-raid reset. Admins can invoke `/admin_reset_raids` and `/admin_resolve_matches` for operational recovery.
 
 ## Validation
 

@@ -227,6 +227,21 @@ class Database:
                     PRIMARY KEY(tournament_week, slot),
                     UNIQUE(tournament_week, player_id)
                 );
+                CREATE TABLE IF NOT EXISTS tournament_matches (
+                    id TEXT PRIMARY KEY,
+                    tournament_week TEXT NOT NULL,
+                    round INTEGER NOT NULL CHECK(round >= 1),
+                    player_a INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    player_b INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    scheduled_at INTEGER NOT NULL,
+                    deadline_at INTEGER NOT NULL,
+                    present_a INTEGER NOT NULL DEFAULT 0 CHECK(present_a IN (0,1)),
+                    present_b INTEGER NOT NULL DEFAULT 0 CHECK(present_b IN (0,1)),
+                    status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','active','completed','cancelled')),
+                    winner_id INTEGER REFERENCES players(telegram_id),
+                    UNIQUE(tournament_week, round, player_a, player_b)
+                );
+                CREATE INDEX IF NOT EXISTS idx_tournament_matches_due ON tournament_matches(status,deadline_at);
                 CREATE TABLE IF NOT EXISTS guild_raid_state (
                     guild_id INTEGER PRIMARY KEY REFERENCES guilds(id) ON DELETE CASCADE,
                     boss_name TEXT NOT NULL,

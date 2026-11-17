@@ -58,3 +58,19 @@ def test_guild_officers_and_weekly_reset_are_idempotent(game):
     social.guild_raid(101)
     assert social.reset_weekly_raids() == 1
     assert social.reset_weekly_raids() == 0
+
+
+def test_tournament_match_scheduling_and_no_show_resolution(game):
+    service, _, epoch = game
+    service.register(101, "one", "One")
+    service.register(202, "two", "Two")
+    social = SocialService(service)
+    social.join_tournament(101)
+    social.join_tournament(202)
+    scheduled = social.start_tournament(101)
+    assert len(scheduled["matches"]) == 1
+    match = social.tournament_matches(101)[0]
+    social.checkin_tournament(101, match["id"])
+    epoch[0] = match["deadline_at"] + 1
+    assert social.resolve_tournaments() == 1
+    assert social.tournament_matches(101)[0]["status"] == "completed"
