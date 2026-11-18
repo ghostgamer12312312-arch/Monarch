@@ -29,7 +29,7 @@ PYTHONPATH=. .venv/bin/python -m compileall -q monarchbot tests
 .venv/bin/ruff format --check monarchbot tests
 ```
 
-The focused service tests cover a temporary ban and automatic expiry, role grants, maintenance persistence, audit rows, schema tables, weekly reward and gift ledger records, and market-sale ledger records. The handler registration test also verifies that every command in the command map is installed in the application and that the new `/economy_history` command is published in the public command list.
+The focused service tests cover a temporary ban and automatic expiry, role grants, maintenance persistence, audit rows, schema tables, weekly reward and gift ledger records, and market-sale ledger records. The handler registration test verifies that every command in the command map is installed and that `/about` and `/economy_history` are published. `tests/test_telegram_integration.py` uses fake Telegram updates and `AsyncMock` methods to verify profile metadata publication, `/about`, and maintenance gating without contacting Telegram.
 
 To run only the moderator and economy tests while iterating:
 

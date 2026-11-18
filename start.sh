@@ -12,4 +12,4 @@ if [ ! -f .env ]; then
   echo "Missing .env. Copy .env.example to .env and add your new Telegram token privately." >&2
   exit 1
 fi
-exec python -m monarchbot.main
+exec python -m monarchbot

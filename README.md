@@ -92,6 +92,8 @@ GitHub Actions runs these checks on Python 3.11 and 3.12. Tests use temporary da
 
 For local moderator testing and deployment, see [`docs/MODERATOR-TESTING-AND-DEPLOYMENT.md`](docs/MODERATOR-TESTING-AND-DEPLOYMENT.md). It covers disposable databases, role setup, timed bans, maintenance mode, economy history, Termux deployment, and coverage commands.
 
+The package transition and local Telegram integration-test boundary are documented in [`docs/ARCHITECTURE-TRANSITION.md`](docs/ARCHITECTURE-TRANSITION.md).
+
 ## Bot profile
 
 The Telegram short description is: “A turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market.” The full About description is published automatically during application startup and is also available through `/about`. The latest Ultimate review and next-change priorities are recorded in [`docs/ULTIMATE-REVIEW-2026-11-19.md`](docs/ULTIMATE-REVIEW-2026-11-19.md).
