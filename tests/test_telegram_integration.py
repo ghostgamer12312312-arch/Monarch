@@ -19,7 +19,9 @@ class FakeMessage:
 class FakeUpdate:
     def __init__(self, user_id: int):
         self.update_id = 1
-        self.effective_user = SimpleNamespace(id=user_id, first_name="Test", username="tester")
+        self.effective_user = SimpleNamespace(
+            id=user_id, first_name="Test", last_name=None, username="tester"
+        )
         self.effective_message = FakeMessage()
         self.callback_query = None
 
@@ -61,6 +63,23 @@ async def test_about_command_returns_the_published_description(game):
 
 
 @pytest.mark.asyncio
+async def test_first_start_returns_a_guided_tutorial(game):
+    service, _, _ = game
+    update = FakeUpdate(404)
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={"game": service, "settings": SimpleNamespace(admin_ids=frozenset())}
+        )
+    )
+    await handlers.start(update, context)
+    message = update.effective_message.replies[0]
+    assert "WELCOME TO MONARCH" in message
+    assert "/class vanguard" in message
+    assert "/battle gate" in message
+    assert "/daily" in message
+
+
+@pytest.mark.asyncio
 async def test_maintenance_gate_blocks_regular_handler_but_not_help(game):
     service, _, _ = game
     service.register(101, "tester", "Test Hunter")
@@ -76,3 +95,4 @@ async def test_maintenance_gate_blocks_regular_handler_but_not_help(game):
     help_update = FakeUpdate(101)
     await handlers.help_command(help_update, context)
     assert "MONARCH" in help_update.effective_message.replies[0]
+    assert "Admin:" not in help_update.effective_message.replies[0]

@@ -31,5 +31,17 @@ def test_all_commands_and_interactive_callbacks_are_registered(game):
         "market_buy",
         "market_cancel",
     } <= {name for name, _ in PUBLIC_COMMANDS}
+    assert not {
+        "admin_stats",
+        "givecoins",
+        "ban",
+        "unban",
+        "admin_add",
+        "admin_remove",
+        "admin_audit",
+        "maintenance",
+        "admin_reset_raids",
+        "admin_resolve_matches",
+    } & {name for name, _ in PUBLIC_COMMANDS}
     assert callback_count >= 2
     assert app.bot_data["game"] is service

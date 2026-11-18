@@ -194,9 +194,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if result:
         _, created = result
         greeting = (
-            "Your hunter file is ready. Two Healing Tonics and an Ash Hound are yours."
+            "WELCOME TO MONARCH, HUNTER\n\n"
+            "Your hunter file is ready. Two Healing Tonics and an Ash Hound are yours.\n\n"
+            "YOUR FIRST HUNT\n"
+            "1. Choose an awakening with /class vanguard, /class assassin, or /class arcanist.\n"
+            "2. Enter your first dungeon with /battle gate.\n"
+            "3. Claim your daily supplies with /daily.\n\n"
+            "When you are ready, explore /guild, /raid, /market, and /arena.\n"
+            "Use /menu for the game hub, /codex for guidance, and /help for commands."
             if created
-            else "Your hunter file is ready."
+            else "WELCOME BACK, HUNTER\n\nYour hunter file is ready. Continue your journey from /menu."
         )
         await update.effective_message.reply_text(
             f"MONARCH\n\n{greeting}\nUse /menu to open the game hub.", reply_markup=main_menu()
@@ -217,8 +224,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
         "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
         "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
-        "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches\n"
-        "Admin: /admin_stats, /givecoins <player_id> <amount>, /ban <player_id> [minutes] [reason], /unban <player_id>, /admin_add <id> [role], /admin_remove <id>, /admin_audit, /maintenance <on|off|status>, /admin_reset_raids, /admin_resolve_matches"
+        "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches"
     )
 
 
