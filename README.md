@@ -96,6 +96,6 @@ The package transition and local Telegram integration-test boundary are document
 
 ## Bot profile
 
-The Telegram short description is: “A turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market.” The full About description is published automatically during application startup and is also available through `/about`. The latest Ultimate review and next-change priorities are recorded in [`docs/ULTIMATE-REVIEW-2026-11-19.md`](docs/ULTIMATE-REVIEW-2026-11-19.md).
+The Telegram bot name is **Monarch: Rift Hunters**. Its short description is: “Turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market.” The full About description is published automatically during application startup and is also available through `/about`. The latest Ultimate review and next-change priorities are recorded in [`docs/ULTIMATE-REVIEW-2026-11-19.md`](docs/ULTIMATE-REVIEW-2026-11-19.md).
 
 The current implementation is deliberately an original genre-inspired game. Add only assets and story text you have permission to use. The next strong gameplay milestone is adding story chapters, deeper skill trees, equipment progression, guild unlocks, and a balance pass while keeping combat state server-authoritative.

@@ -23,14 +23,15 @@ from .tournament import TournamentService
 
 logger = logging.getLogger(__name__)
 _CALL_FAILED = object()
+BOT_NAME = "Monarch: Rift Hunters"
 BOT_SHORT_DESCRIPTION = (
-    "A turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market."
+    "Turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market."
 )
 BOT_DESCRIPTION = (
     "MONARCH is an original turn-based Telegram hunter RPG. Create your hunter, choose an awakening class, "
     "enter persistent dungeon battles, collect Echo companions, build a six-member team, join guilds, fight the "
     "world raid, challenge other hunters, compete in weekly tournaments, and trade supplies through a protected "
-    "player market. Progression, rewards, moderation, and economy changes are stored transactionally in SQLite. "
+    "player market. Progression, rewards, moderation, and economy changes are stored transactionally. "
     "Use /start to begin and /menu to open the game hub."
 )
 
@@ -1334,6 +1335,7 @@ async def _codex_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def _post_init(application: Application) -> None:
     commands = [BotCommand(name, description) for name, description in PUBLIC_COMMANDS]
     await application.bot.set_my_commands(commands)
+    await application.bot.set_my_name(BOT_NAME)
     await application.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
     await application.bot.set_my_description(BOT_DESCRIPTION)
 

@@ -29,6 +29,7 @@ async def test_post_init_publishes_commands_and_profile_metadata(game):
     service, _, _ = game
     bot = SimpleNamespace(
         set_my_commands=AsyncMock(),
+        set_my_name=AsyncMock(),
         set_my_short_description=AsyncMock(),
         set_my_description=AsyncMock(),
     )
@@ -37,6 +38,7 @@ async def test_post_init_publishes_commands_and_profile_metadata(game):
     )
     await handlers._post_init(application)
     bot.set_my_commands.assert_awaited_once()
+    bot.set_my_name.assert_awaited_once_with(handlers.BOT_NAME)
     bot.set_my_short_description.assert_awaited_once_with(handlers.BOT_SHORT_DESCRIPTION)
     bot.set_my_description.assert_awaited_once_with(handlers.BOT_DESCRIPTION)
     command_names = [command.command for command in bot.set_my_commands.await_args.args[0]]

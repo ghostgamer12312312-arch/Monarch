@@ -36,11 +36,11 @@ The next operational priority should be a real Telegram integration test harness
 
 **Short description:**
 
-> A turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market.
+> Turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market.
 
 **Full description:**
 
-> MONARCH is an original turn-based Telegram hunter RPG. Create your hunter, choose an awakening class, enter persistent dungeon battles, collect Echo companions, build a six-member team, join guilds, fight the world raid, challenge other hunters, compete in weekly tournaments, and trade supplies through a protected player market. Progression, rewards, moderation, and economy changes are stored transactionally in SQLite. Use /start to begin and /menu to open the game hub.
+> MONARCH is an original turn-based Telegram hunter RPG. Create your hunter, choose an awakening class, enter persistent dungeon battles, collect Echo companions, build a six-member team, join guilds, fight the world raid, challenge other hunters, compete in weekly tournaments, and trade supplies through a protected player market. Progression, rewards, moderation, and economy changes are stored transactionally. Use /start to begin and /menu to open the game hub.
 
 The application now attempts to publish these descriptions during startup through Telegram’s profile methods and exposes the same text through `/about`.
 
