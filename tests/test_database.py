@@ -20,6 +20,9 @@ def test_schema_initializes_idempotently_and_contains_core_tables(game):
         "market_listings",
         "banned_players",
         "player_companions",
+        "admin_roles",
+        "admin_audit",
+        "bot_settings",
     } <= tables
 
 

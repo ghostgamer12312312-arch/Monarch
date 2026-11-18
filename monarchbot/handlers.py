@@ -31,6 +31,15 @@ def _uid(update: Update) -> int:
     return update.effective_user.id
 
 
+async def _is_operator(update: Update, context: ContextTypes.DEFAULT_TYPE, minimum: str = "admin") -> bool:
+    return await asyncio.to_thread(
+        context.application.bot_data["game"].has_admin_role,
+        _uid(update),
+        context.application.bot_data["settings"].admin_ids,
+        minimum,
+    )
+
+
 async def _call(update: Update, function, *args, preserve_failure: bool = False):
     try:
         return await asyncio.to_thread(function, *args)
@@ -51,6 +60,16 @@ def _protected(function):
     @wraps(function)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
+            if function.__name__ not in {"start", "help_command", "maintenance"}:
+                maintenance_on = await asyncio.to_thread(
+                    context.application.bot_data["game"].maintenance_enabled
+                )
+                if maintenance_on and not await _is_operator(update, context):
+                    if update.effective_message:
+                        await update.effective_message.reply_text(
+                            "Monarch is in maintenance mode. Please try again later."
+                        )
+                    return
             return await function(update, context)
         except GameError as exc:
             if update.effective_message:
@@ -188,7 +207,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
         "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
         "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches\n"
-        "Admin: /admin_stats, /givecoins <player_id> <amount>, /ban <player_id> [reason], /unban <player_id>, /admin_reset_raids, /admin_resolve_matches"
+        "Admin: /admin_stats, /givecoins <player_id> <amount>, /ban <player_id> [minutes] [reason], /unban <player_id>, /admin_add <id> [role], /admin_remove <id>, /admin_audit, /maintenance <on|off|status>, /admin_reset_raids, /admin_resolve_matches"
     )
 
 
@@ -885,7 +904,7 @@ async def market_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 @_protected
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+    if not await _is_operator(update, context):
         raise GameError("Admin only.")
     result = await _call(update, context.application.bot_data["game"].admin_stats)
     if result:
@@ -896,7 +915,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 @_protected
 async def givecoins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+    if not await _is_operator(update, context):
         raise GameError("Admin only.")
     if len(context.args) != 2:
         raise GameError("Usage: /givecoins <player_id> <amount>.")
@@ -912,20 +931,25 @@ async def givecoins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @_protected
 async def ban_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     admin_id = _uid(update)
-    admins = context.application.bot_data["settings"].admin_ids
-    if admin_id not in admins:
+    if not await _is_operator(update, context, "moderator"):
         raise GameError("Admin only.")
     if not context.args or not context.args[0].isdigit():
         raise GameError("Usage: /ban <player_id> [reason].")
     target = int(context.args[0])
-    if target in admins:
+    if target in context.application.bot_data["settings"].admin_ids:
         raise GameError("You cannot ban a configured bot administrator.")
+    duration = 0
+    reason_args = context.args[1:]
+    if reason_args and reason_args[0].isdigit():
+        duration = int(reason_args[0])
+        reason_args = reason_args[1:]
     result = await _call(
         update,
         context.application.bot_data["game"].admin_ban,
         target,
-        " ".join(context.args[1:]) or "No reason",
+        " ".join(reason_args) or "No reason",
         admin_id,
+        duration,
     )
     if result is not None:
         await update.effective_message.reply_text("Player restricted from game actions.")
@@ -933,14 +957,79 @@ async def ban_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 @_protected
 async def unban_player(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    admin_id = _uid(update)
-    if admin_id not in context.application.bot_data["settings"].admin_ids:
+    if not await _is_operator(update, context, "moderator"):
         raise GameError("Admin only.")
     if len(context.args) != 1 or not context.args[0].isdigit():
         raise GameError("Usage: /unban <player_id>.")
     result = await _call(update, context.application.bot_data["game"].admin_unban, int(context.args[0]))
     if result is not None:
         await update.effective_message.reply_text("Player access restored.")
+
+
+@_protected
+async def admin_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+        raise GameError("Only configured administrators can grant roles.")
+    if len(context.args) not in {1, 2} or not context.args[0].isdigit():
+        raise GameError("Usage: /admin_add <player_id> [admin|moderator].")
+    role = context.args[1] if len(context.args) == 2 else "moderator"
+    result = await _call(
+        update,
+        context.application.bot_data["game"].grant_admin_role,
+        _uid(update),
+        int(context.args[0]),
+        role,
+    )
+    if result:
+        await update.effective_message.reply_text(f"Granted {result['role']} role to {result['target_id']}.")
+
+
+@_protected
+async def admin_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+        raise GameError("Only configured administrators can revoke roles.")
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        raise GameError("Usage: /admin_remove <player_id>.")
+    result = await _call(
+        update, context.application.bot_data["game"].revoke_admin_role, _uid(update), int(context.args[0])
+    )
+    if result:
+        await update.effective_message.reply_text("Database-backed role revoked.")
+
+
+@_protected
+async def admin_audit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _is_operator(update, context):
+        raise GameError("Admin only.")
+    rows = await _call(update, context.application.bot_data["game"].admin_audit, 20)
+    if rows is not None:
+        await update.effective_message.reply_text(
+            "ADMIN AUDIT\n"
+            + (
+                "\n".join(
+                    f"#{row['id']} {row['action']} target={row['target_id']} actor={row['actor_id']} {row['detail']}"
+                    for row in rows
+                )
+                or "No audit events."
+            )
+        )
+
+
+@_protected
+async def maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if _uid(update) not in context.application.bot_data["settings"].admin_ids:
+        raise GameError("Only configured administrators can change maintenance mode.")
+    if len(context.args) != 1 or context.args[0].lower() not in {"on", "off", "status"}:
+        raise GameError("Usage: /maintenance <on|off|status>.")
+    action = context.args[0].lower()
+    if action == "status":
+        enabled = await _call(update, context.application.bot_data["game"].maintenance_enabled)
+    else:
+        enabled = await _call(
+            update, context.application.bot_data["game"].set_maintenance, _uid(update), action == "on"
+        )
+    if enabled is not None:
+        await update.effective_message.reply_text(f"Maintenance mode: {'ON' if enabled else 'OFF'}.")
 
 
 @_protected
@@ -1009,6 +1098,10 @@ COMMANDS = {
     "givecoins": givecoins,
     "ban": ban_player,
     "unban": unban_player,
+    "admin_add": admin_add,
+    "admin_remove": admin_remove,
+    "admin_audit": admin_audit,
+    "maintenance": maintenance,
     "admin_reset_raids": admin_reset_raids,
     "admin_resolve_matches": admin_resolve_matches,
     "duel": duel,

@@ -182,6 +182,22 @@ def test_banned_player_cannot_play_until_unbanned(game):
     assert service.profile(101)["display_name"] == "Hunter 101"
 
 
+def test_timed_ban_expires_and_admin_controls_are_audited(game):
+    service, _, epoch = game
+    register(game, 101)
+    register(game, 202)
+    assert service.grant_admin_role(101, 202, "moderator")["role"] == "moderator"
+    assert service.has_admin_role(202, frozenset(), "moderator")
+    service.admin_ban(101, "short test", 202, duration_minutes=1)
+    with pytest.raises(GameError, match="restricted"):
+        service.profile(101)
+    epoch[0] += 61
+    assert service.profile(101)["telegram_id"] == 101
+    service.set_maintenance(202, True)
+    assert service.maintenance_enabled()
+    assert any(row["action"] == "maintenance" for row in service.admin_audit())
+
+
 def test_companion_extraction_duplicate_fragments_and_equipment(game):
     service, _, _ = game
     register(game)

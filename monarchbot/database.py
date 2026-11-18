@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class Database:
@@ -65,6 +65,9 @@ class Database:
                     raise RuntimeError(
                         f"Database schema version {version['value']} is not supported by this build (expected {SCHEMA_VERSION}). Back up the database before upgrading."
                     )
+                columns = {row["name"] for row in con.execute("PRAGMA table_info(banned_players)").fetchall()}
+                if columns and "expires_at" not in columns:
+                    con.execute("ALTER TABLE banned_players ADD COLUMN expires_at INTEGER")
             con.executescript(
                 """
                 BEGIN IMMEDIATE;
@@ -96,7 +99,27 @@ class Database:
                     telegram_id INTEGER PRIMARY KEY REFERENCES players(telegram_id) ON DELETE CASCADE,
                     reason TEXT NOT NULL,
                     banned_by INTEGER NOT NULL,
+                    expires_at INTEGER,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS admin_roles (
+                    player_id INTEGER PRIMARY KEY REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    role TEXT NOT NULL CHECK(role IN ('admin','moderator')),
+                    granted_by INTEGER NOT NULL,
+                    granted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS admin_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    target_id INTEGER,
+                    reason TEXT NOT NULL DEFAULT '',
+                    detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS inventory (
                     player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
@@ -270,7 +293,7 @@ class Database:
                 );
                 INSERT OR IGNORE INTO raid_state(id,name,hp,max_hp,cycle)
                     VALUES(1,'The Rift Sovereign',250000,250000,1);
-                INSERT INTO schema_meta(key,value) VALUES('schema_version','2')
+                INSERT INTO schema_meta(key,value) VALUES('schema_version','3')
                     ON CONFLICT(key) DO UPDATE SET value=excluded.value;
                 COMMIT;
                 """

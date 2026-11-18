@@ -53,17 +53,81 @@ class GameService:
         iso = self.clock().astimezone(UTC).date().isocalendar()
         return f"{iso.year}-W{iso.week:02d}"
 
-    @staticmethod
-    def _require_player(con, player_id: int):
+    def _require_player(self, con, player_id: int):
         row = con.execute("SELECT * FROM players WHERE telegram_id = ?", (player_id,)).fetchone()
         if row is None:
             raise GameError("You do not have a hunter profile yet. Use /start first.")
         banned = con.execute(
-            "SELECT reason FROM banned_players WHERE telegram_id = ?", (player_id,)
+            "SELECT reason,expires_at FROM banned_players WHERE telegram_id = ?", (player_id,)
         ).fetchone()
         if banned:
+            if banned["expires_at"] is not None and int(banned["expires_at"]) <= int(self.epoch()):
+                con.execute("DELETE FROM banned_players WHERE telegram_id=?", (player_id,))
+                return row
             raise GameError("This account is restricted from game actions. Contact the bot administrator.")
         return row
+
+    @staticmethod
+    def _audit(
+        con, actor_id: int, action: str, target_id: int | None = None, reason: str = "", detail: str = ""
+    ) -> None:
+        con.execute(
+            "INSERT INTO admin_audit(actor_id,action,target_id,reason,detail) VALUES(?,?,?,?,?)",
+            (actor_id, action, target_id, reason[:240], detail[:500]),
+        )
+
+    def has_admin_role(
+        self, player_id: int, configured_admins: frozenset[int], minimum: str = "admin"
+    ) -> bool:
+        if player_id in configured_admins:
+            return True
+        with self.db.reader() as con:
+            row = con.execute("SELECT role FROM admin_roles WHERE player_id=?", (player_id,)).fetchone()
+            return row is not None and (minimum == "moderator" or row["role"] == "admin")
+
+    def grant_admin_role(self, actor_id: int, target_id: int, role: str) -> dict:
+        if role not in {"admin", "moderator"}:
+            raise GameError("Role must be admin or moderator.")
+        with self.db.transaction() as con:
+            self._require_player(con, target_id)
+            con.execute(
+                "INSERT INTO admin_roles(player_id,role,granted_by) VALUES(?,?,?) ON CONFLICT(player_id) DO UPDATE SET role=excluded.role,granted_by=excluded.granted_by,granted_at=CURRENT_TIMESTAMP",
+                (target_id, role, actor_id),
+            )
+            self._audit(con, actor_id, "grant_admin_role", target_id, detail=role)
+            return {"target_id": target_id, "role": role}
+
+    def revoke_admin_role(self, actor_id: int, target_id: int) -> bool:
+        with self.db.transaction() as con:
+            cur = con.execute("DELETE FROM admin_roles WHERE player_id=?", (target_id,))
+            if cur.rowcount == 0:
+                raise GameError("That hunter has no database-backed admin role.")
+            self._audit(con, actor_id, "revoke_admin_role", target_id)
+            return True
+
+    def admin_audit(self, limit: int = 20) -> list[dict]:
+        limit = max(1, min(100, int(limit)))
+        with self.db.reader() as con:
+            return [
+                dict(row)
+                for row in con.execute(
+                    "SELECT * FROM admin_audit ORDER BY id DESC LIMIT ?", (limit,)
+                ).fetchall()
+            ]
+
+    def set_maintenance(self, actor_id: int, enabled: bool) -> bool:
+        with self.db.transaction() as con:
+            self._audit(con, actor_id, "maintenance", detail="on" if enabled else "off")
+            con.execute(
+                "INSERT INTO bot_settings(key,value) VALUES('maintenance',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("1" if enabled else "0",),
+            )
+            return enabled
+
+    def maintenance_enabled(self) -> bool:
+        with self.db.reader() as con:
+            row = con.execute("SELECT value FROM bot_settings WHERE key='maintenance'").fetchone()
+            return row is not None and row["value"] == "1"
 
     @staticmethod
     def _stats(player) -> tuple[int, int, int, str]:
@@ -996,17 +1060,21 @@ class GameService:
             self._add_coins(con, player_id, amount)
             return True
 
-    def admin_ban(self, target_id: int, reason: str, admin_id: int) -> bool:
+    def admin_ban(self, target_id: int, reason: str, admin_id: int, duration_minutes: int = 0) -> bool:
         if target_id <= 0:
             raise GameError("Target Telegram ID must be positive.")
         reason = " ".join(reason.split())[:160] or "No reason provided"
+        if duration_minutes < 0 or duration_minutes > 30 * 24 * 60:
+            raise GameError("Ban duration must be between 0 and 43,200 minutes.")
+        expires_at = int(self.epoch()) + duration_minutes * 60 if duration_minutes else None
         with self.db.transaction() as con:
             if con.execute("SELECT 1 FROM players WHERE telegram_id=?", (target_id,)).fetchone() is None:
                 raise GameError("That player has no game profile.")
             con.execute(
-                "INSERT INTO banned_players(telegram_id,reason,banned_by) VALUES(?,?,?) ON CONFLICT(telegram_id) DO UPDATE SET reason=excluded.reason,banned_by=excluded.banned_by,created_at=CURRENT_TIMESTAMP",
-                (target_id, reason, admin_id),
+                "INSERT INTO banned_players(telegram_id,reason,banned_by,expires_at) VALUES(?,?,?,?) ON CONFLICT(telegram_id) DO UPDATE SET reason=excluded.reason,banned_by=excluded.banned_by,expires_at=excluded.expires_at,created_at=CURRENT_TIMESTAMP",
+                (target_id, reason, admin_id, expires_at),
             )
+            self._audit(con, admin_id, "ban", target_id, reason, f"expires_at={expires_at or 'never'}")
             listings = con.execute(
                 "SELECT id,item_id,quantity FROM market_listings WHERE seller_id=? AND status='active'",
                 (target_id,),
@@ -1027,4 +1095,5 @@ class GameService:
             cur = con.execute("DELETE FROM banned_players WHERE telegram_id=?", (target_id,))
             if cur.rowcount == 0:
                 raise GameError("That player is not currently banned.")
+            self._audit(con, 0, "unban", target_id)
             return True

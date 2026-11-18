@@ -44,6 +44,8 @@ Android may stop background processes after battery optimization, force-stop, re
 
 The bot's maintenance thread checks once per hour. It resolves due tournament matches and calls the idempotent UTC-week guild-raid reset. Admins can invoke `/admin_reset_raids` and `/admin_resolve_matches` for operational recovery.
 
+Configured `ADMIN_IDS` are the immutable top-level operators. They can grant or revoke database-backed `admin` and `moderator` roles with `/admin_add` and `/admin_remove`. `/admin_audit` reads the durable audit trail. `/ban` accepts an optional duration in minutes, and expired bans are removed when the player next acts. `/maintenance on|off|status` stores a durable maintenance flag; ordinary commands are rejected while operators retain access. These controls were selected from the repository comparison because they are safer and more maintainable than unrestricted database reset, code-pull, or arbitrary query commands.
+
 ## Validation
 
 From the repository root:
