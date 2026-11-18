@@ -23,6 +23,16 @@ from .tournament import TournamentService
 
 logger = logging.getLogger(__name__)
 _CALL_FAILED = object()
+BOT_SHORT_DESCRIPTION = (
+    "A turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market."
+)
+BOT_DESCRIPTION = (
+    "MONARCH is an original turn-based Telegram hunter RPG. Create your hunter, choose an awakening class, "
+    "enter persistent dungeon battles, collect Echo companions, build a six-member team, join guilds, fight the "
+    "world raid, challenge other hunters, compete in weekly tournaments, and trade supplies through a protected "
+    "player market. Progression, rewards, moderation, and economy changes are stored transactionally in SQLite. "
+    "Use /start to begin and /menu to open the game hub."
+)
 
 
 def _uid(update: Update) -> int:
@@ -196,7 +206,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         "MONARCH — HUNTER COMMANDS\n"
-        "/start — create your hunter file\n/menu — open the interactive game hub\n/profile — stats and awakening class\n"
+        "/start — create your hunter file\n/about — learn what Monarch is\n/menu — open the interactive game hub\n/profile — stats and awakening class\n"
         "/class [vanguard|assassin|arcanist] — choose your awakening once\n"
         "/battle [gate|rift|abyss] — enter a turn-based dungeon\n/battle_status — recover your active battle screen\n"
         "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
@@ -209,6 +219,11 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches\n"
         "Admin: /admin_stats, /givecoins <player_id> <amount>, /ban <player_id> [minutes] [reason], /unban <player_id>, /admin_add <id> [role], /admin_remove <id>, /admin_audit, /maintenance <on|off|status>, /admin_reset_raids, /admin_resolve_matches"
     )
+
+
+@_protected
+async def about_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.effective_message.reply_text(f"{BOT_DESCRIPTION}\n\nUse /help to see every command.")
 
 
 @_protected
@@ -1142,6 +1157,7 @@ COMMANDS = {
     "team": team,
     "team_power": team_power,
     "economy_history": economy_history,
+    "about": about_command,
 }
 
 PUBLIC_COMMANDS = [
@@ -1197,6 +1213,7 @@ PUBLIC_COMMANDS = [
     ("team", "Manage your six-member team"),
     ("team_power", "View combined team power"),
     ("economy_history", "View recent economy events"),
+    ("about", "Learn about Monarch"),
 ]
 
 
@@ -1317,6 +1334,8 @@ async def _codex_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def _post_init(application: Application) -> None:
     commands = [BotCommand(name, description) for name, description in PUBLIC_COMMANDS]
     await application.bot.set_my_commands(commands)
+    await application.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
+    await application.bot.set_my_description(BOT_DESCRIPTION)
 
 
 async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
