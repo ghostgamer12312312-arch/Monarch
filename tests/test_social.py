@@ -74,3 +74,28 @@ def test_tournament_match_scheduling_and_no_show_resolution(game):
     epoch[0] = match["deadline_at"] + 1
     assert social.resolve_tournaments() == 1
     assert social.tournament_matches(101)[0]["status"] == "completed"
+
+
+def test_weekly_reward_and_coin_gifting_are_bounded_and_idempotent(game):
+    service, _, _ = game
+    service.register(101, "one", "One")
+    service.register(202, "two", "Two")
+    reward = service.weekly(101)
+    assert reward["coins"] >= 1000
+    with pytest.raises(GameError, match="already claimed"):
+        service.weekly(101)
+    sent = service.give_coins(101, 202, 250)
+    assert sent["target"] == "Two"
+    with pytest.raises(GameError, match="between 1 and 5,000"):
+        service.give_coins(101, 202, 5001)
+
+
+def test_team_power_includes_configured_members(game):
+    service, _, _ = game
+    service.register(101, "one", "One")
+    service.register(202, "two", "Two")
+    social = SocialService(service)
+    social.add_team_member(101, 202, 1)
+    power = social.team_power(101)
+    assert power["members"] == 2
+    assert power["power"] > 0

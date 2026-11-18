@@ -340,6 +340,33 @@ class GameService:
                 "daily_date": player["daily_date"],
             }
 
+    def weekly(self, player_id: int) -> dict:
+        week = self._current_week()
+        with self.db.transaction() as con:
+            player = self._require_player(con, player_id)
+            if player["weekly_date"] == week:
+                raise GameError("You have already claimed this week's reward.")
+            reward = 1000 + int(player["level"]) * 50
+            con.execute(
+                "UPDATE players SET weekly_date=?,coins=coins+?,energy=min(max_energy,energy+50) WHERE telegram_id=?",
+                (week, reward, player_id),
+            )
+            return {"week": week, "coins": reward}
+
+    def give_coins(self, sender_id: int, target_id: int, amount: int) -> dict:
+        if sender_id == target_id:
+            raise GameError("You cannot send coins to yourself.")
+        if not 1 <= amount <= 5000:
+            raise GameError("You can give between 1 and 5,000 coins.")
+        with self.db.transaction() as con:
+            sender = self._require_player(con, sender_id)
+            target = self._require_player(con, target_id)
+            if int(sender["coins"]) < amount:
+                raise GameError("You do not have enough coins.")
+            con.execute("UPDATE players SET coins=coins-? WHERE telegram_id=?", (amount, sender_id))
+            con.execute("UPDATE players SET coins=coins+? WHERE telegram_id=?", (amount, target_id))
+            return {"amount": amount, "target": target["display_name"]}
+
     def quests(self, player_id: int) -> list[dict]:
         today = self._today()
         definitions = (

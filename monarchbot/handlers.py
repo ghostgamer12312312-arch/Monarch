@@ -181,7 +181,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/class [vanguard|assassin|arcanist] — choose your awakening once\n"
         "/battle [gate|rift|abyss] — enter a turn-based dungeon\n/battle_status — recover your active battle screen\n"
         "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
-        "/daily_status — check today's claim and streak\n/codex [classes|dungeons|items|companions] — browse game content\n"
+        "/daily_status — check today's claim and streak\n/weekly — claim a larger weekly reward\n/give <player_id> <amount> — send coins to another hunter\n/codex [classes|dungeons|items|companions] — browse game content\n"
         "/shop — view items\n/buy <item_id> [qty] — buy items\n/inventory — view items\n/use energy_shard — restore energy\n"
         "/leaderboard — top hunters\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n/guild_promote <id>\n/guild_demote <id>\n/guild_kick <id>\n/guild_rename <name>\n"
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
@@ -244,6 +244,30 @@ async def daily_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"DAILY STATUS\n{claim}\nCurrent streak: {result['streak']} day(s)\n"
             f"If you claim today: {result['next_streak']} day(s)\nEnergy: {result['energy']}/{result['max_energy']}"
         )
+
+
+@_protected
+async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["game"].weekly, _uid(update))
+    if result:
+        await update.effective_message.reply_text(
+            f"Weekly reward: {result['coins']} coins for {result['week']}."
+        )
+
+
+@_protected
+async def give_coins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 2 or not all(value.isdigit() for value in context.args):
+        raise GameError("Usage: /give <player_id> <amount>.")
+    result = await _call(
+        update,
+        context.application.bot_data["game"].give_coins,
+        _uid(update),
+        int(context.args[0]),
+        int(context.args[1]),
+    )
+    if result:
+        await update.effective_message.reply_text(f"Sent {result['amount']} coins to {result['target']}.")
 
 
 @_protected
@@ -414,6 +438,15 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "\n".join(f"Slot {r['slot']}: {r['display_name']} ({r['member_id']})" for r in rows)
                 or "Empty. Add with /team <player_id> <slot>."
             )
+        )
+
+
+@_protected
+async def team_power(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["social"].team_power, _uid(update))
+    if result is not None:
+        await update.effective_message.reply_text(
+            f"TEAM POWER · {result['power']} ATK across {result['members']} hunter(s)."
         )
 
 
@@ -938,6 +971,8 @@ COMMANDS = {
     "class": choose_class,
     "daily": daily,
     "daily_status": daily_status,
+    "weekly": weekly,
+    "give": give_coins,
     "codex": codex,
     "quests": quests,
     "quest_claim": quest_claim,
@@ -985,6 +1020,7 @@ COMMANDS = {
     "tournament_matches": tournament_matches,
     "guild_raid": guild_raid,
     "team": team,
+    "team_power": team_power,
 }
 
 PUBLIC_COMMANDS = [
@@ -995,6 +1031,8 @@ PUBLIC_COMMANDS = [
     ("class", "Choose your awakening class"),
     ("daily", "Claim daily reward"),
     ("daily_status", "Check reward and streak"),
+    ("weekly", "Claim weekly reward"),
+    ("give", "Send coins to a hunter"),
     ("codex", "Browse classes, dungeons and items"),
     ("quests", "View daily objectives"),
     ("quest_claim", "Claim a daily objective"),
@@ -1036,6 +1074,7 @@ PUBLIC_COMMANDS = [
     ("tournament_matches", "View your tournament matches"),
     ("guild_raid", "Attack your guild boss"),
     ("team", "Manage your six-member team"),
+    ("team_power", "View combined team power"),
 ]
 
 

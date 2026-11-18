@@ -353,3 +353,11 @@ class SocialService:
                     (player_id,),
                 ).fetchall()
             ]
+
+    def team_power(self, player_id: int) -> dict:
+        with self.db.reader() as con:
+            self.game._require_player(con, player_id)
+            count = con.execute(
+                "SELECT COUNT(*) FROM player_teams WHERE player_id=?", (player_id,)
+            ).fetchone()[0]
+            return {"members": int(count) + 1, "power": self._combined_power(con, player_id)}

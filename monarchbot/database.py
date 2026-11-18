@@ -87,6 +87,7 @@ class Database:
                     equipped_companion TEXT NOT NULL DEFAULT 'ash_hound',
                     daily_date TEXT,
                     daily_streak INTEGER NOT NULL DEFAULT 0 CHECK(daily_streak >= 0),
+                    weekly_date TEXT,
                     last_raid_at INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );

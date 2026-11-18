@@ -8,13 +8,13 @@ SQLite is the durable store. Every state-changing operation uses one transaction
 
 ## Gameplay loops
 
-1. `/start` creates a hunter profile, starter supplies, and an Echo companion.
+1. `/start` creates a hunter profile, starter supplies, and an Echo companion. `/daily` and `/weekly` provide bounded recurring rewards; `/give` transfers a bounded amount of coins in one transaction.
 2. `/menu` opens the inline hub; `/codex` opens inline navigation for classes, dungeons, items, and companions.
 3. `/battle gate|rift|abyss` starts a turn-based encounter; actions are committed atomically.
 4. `/guild_create`, `/guild_join`, and `/guild_donate` build the social layer. `/guild_raid` records every member's damage and ranks the contribution board.
 5. `/duel <player_id>` creates a challenge; the opponent accepts with `/duel_accept <id>`. Ratings update only once on completion.
 6. `/tournament_join` allocates one of ten unique weekly slots; `/tournament_slots` displays the roster. `/tournament_start` creates randomized match times within 24 hours, `/tournament_checkin <match_id>` records attendance, and `/tournament_matches` shows the player's schedule. Matches remain open for two days; a present hunter wins against a no-show, and the hourly maintenance loop resolves due matches.
-7. `/team <player_id> <slot>` maintains up to six configured team positions for future party combat.
+7. `/team <player_id> <slot>` maintains up to six configured team positions, and `/team_power` reports their combined attack. Configured teammates contribute to guild-raid damage.
 
 ## Termux deployment
 
