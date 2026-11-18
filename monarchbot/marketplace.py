@@ -100,7 +100,10 @@ class MarketplaceService:
             seller_id = int(listing["seller_id"])
             if seller_id == buyer_id:
                 raise GameError("You cannot buy your own listing.")
-            if con.execute("SELECT 1 FROM banned_players WHERE telegram_id=?", (seller_id,)).fetchone():
+            if con.execute(
+                "SELECT 1 FROM banned_players WHERE telegram_id=? AND (expires_at IS NULL OR expires_at>?)",
+                (seller_id, now),
+            ).fetchone():
                 raise GameError("That seller is restricted; their listing cannot be purchased.")
             if int(buyer["coins"]) < int(listing["price"]):
                 raise GameError(f"You need {int(listing['price']):,} coins for that listing.")
@@ -110,6 +113,16 @@ class MarketplaceService:
             con.execute("UPDATE players SET coins=coins-? WHERE telegram_id=?", (price, buyer_id))
             con.execute("UPDATE players SET coins=coins+? WHERE telegram_id=?", (payout, seller_id))
             self._credit_item(con, buyer_id, listing["item_id"], int(listing["quantity"]))
+            self.game._ledger(
+                con,
+                buyer_id,
+                seller_id,
+                "coins",
+                price,
+                "market_sale",
+                str(listing_id),
+                f"fee={fee}",
+            )
             changed = con.execute(
                 "UPDATE market_listings SET status='sold',buyer_id=?,sold_at=CURRENT_TIMESTAMP WHERE id=? AND status='active'",
                 (buyer_id, listing_id),

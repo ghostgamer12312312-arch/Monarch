@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class Database:
@@ -121,6 +121,19 @@ class Database:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS economy_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    target_id INTEGER REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    currency TEXT NOT NULL CHECK(currency IN ('coins','energy','item')),
+                    amount INTEGER NOT NULL CHECK(amount > 0),
+                    action TEXT NOT NULL,
+                    reference TEXT NOT NULL DEFAULT '',
+                    detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_economy_ledger_actor ON economy_ledger(actor_id, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_economy_ledger_target ON economy_ledger(target_id, id DESC);
                 CREATE TABLE IF NOT EXISTS inventory (
                     player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
                     item_id TEXT NOT NULL,
@@ -293,7 +306,7 @@ class Database:
                 );
                 INSERT OR IGNORE INTO raid_state(id,name,hp,max_hp,cycle)
                     VALUES(1,'The Rift Sovereign',250000,250000,1);
-                INSERT INTO schema_meta(key,value) VALUES('schema_version','3')
+                INSERT INTO schema_meta(key,value) VALUES('schema_version','4')
                     ON CONFLICT(key) DO UPDATE SET value=excluded.value;
                 COMMIT;
                 """

@@ -22,6 +22,9 @@ def test_market_escrows_item_settles_fee_and_transfers_once(game):
     assert purchased["fee"] == 5
     assert purchased["seller_receives"] == 95
     assert any(row["item_id"] == "energy_shard" and row["quantity"] == 1 for row in service.inventory(202))
+    assert any(
+        row["action"] == "market_sale" and row["amount"] == 100 for row in service.economy_history(202)
+    )
     with pytest.raises(GameError, match="no longer available"):
         market.buy(202, listing["id"])
 

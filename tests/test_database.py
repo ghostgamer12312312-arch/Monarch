@@ -23,6 +23,7 @@ def test_schema_initializes_idempotently_and_contains_core_tables(game):
         "admin_roles",
         "admin_audit",
         "bot_settings",
+        "economy_ledger",
     } <= tables
 
 

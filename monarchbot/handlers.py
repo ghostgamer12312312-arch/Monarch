@@ -200,7 +200,7 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/class [vanguard|assassin|arcanist] — choose your awakening once\n"
         "/battle [gate|rift|abyss] — enter a turn-based dungeon\n/battle_status — recover your active battle screen\n"
         "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
-        "/daily_status — check today's claim and streak\n/weekly — claim a larger weekly reward\n/give <player_id> <amount> — send coins to another hunter\n/codex [classes|dungeons|items|companions] — browse game content\n"
+        "/daily_status — check today's claim and streak\n/weekly — claim a larger weekly reward\n/give <player_id> <amount> — send coins to another hunter\n/economy_history [limit] — view your recent economy events\n/codex [classes|dungeons|items|companions] — browse game content\n"
         "/shop — view items\n/buy <item_id> [qty] — buy items\n/inventory — view items\n/use energy_shard — restore energy\n"
         "/leaderboard — top hunters\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n/guild_promote <id>\n/guild_demote <id>\n/guild_kick <id>\n/guild_rename <name>\n"
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
@@ -568,6 +568,33 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "\n".join(f"{x['name']} × {x['quantity']} ({x['item_id']})" for x in rows) if rows else "Empty"
         )
         await update.effective_message.reply_text(text)
+
+
+@_protected
+async def economy_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    limit = 20
+    if context.args:
+        if len(context.args) != 1 or not context.args[0].isdigit():
+            raise GameError("Usage: /economy_history [number of entries].")
+        limit = int(context.args[0])
+    rows = await _call(update, context.application.bot_data["game"].economy_history, _uid(update), limit)
+    if rows is not None:
+        if not rows:
+            await update.effective_message.reply_text("ECONOMY HISTORY\nNo recorded transactions yet.")
+            return
+        lines = ["ECONOMY HISTORY"]
+        for row in rows:
+            direction = (
+                "→"
+                if row["actor_id"] == _uid(update) and row["target_id"]
+                else "←"
+                if row["target_id"] == _uid(update)
+                else "+"
+            )
+            lines.append(
+                f"{direction} {row['action']} · {row['amount']} {row['currency']} · {row['created_at']}"
+            )
+        await update.effective_message.reply_text("\n".join(lines))
 
 
 @_protected
@@ -1114,6 +1141,7 @@ COMMANDS = {
     "guild_raid": guild_raid,
     "team": team,
     "team_power": team_power,
+    "economy_history": economy_history,
 }
 
 PUBLIC_COMMANDS = [
@@ -1168,6 +1196,7 @@ PUBLIC_COMMANDS = [
     ("guild_raid", "Attack your guild boss"),
     ("team", "Manage your six-member team"),
     ("team_power", "View combined team power"),
+    ("economy_history", "View recent economy events"),
 ]
 
 

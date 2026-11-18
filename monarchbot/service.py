@@ -76,6 +76,34 @@ class GameService:
             (actor_id, action, target_id, reason[:240], detail[:500]),
         )
 
+    @staticmethod
+    def _ledger(
+        con,
+        actor_id: int,
+        target_id: int | None,
+        currency: str,
+        amount: int,
+        action: str,
+        reference: str = "",
+        detail: str = "",
+    ) -> None:
+        if currency not in {"coins", "energy", "item"} or amount <= 0:
+            raise GameError("Invalid economy ledger entry.")
+        con.execute(
+            "INSERT INTO economy_ledger(actor_id,target_id,currency,amount,action,reference,detail) VALUES(?,?,?,?,?,?,?)",
+            (actor_id, target_id, currency, amount, action, reference[:80], detail[:240]),
+        )
+
+    def economy_history(self, player_id: int, limit: int = 20) -> list[dict]:
+        limit = max(1, min(50, int(limit)))
+        with self.db.reader() as con:
+            self._require_player(con, player_id)
+            rows = con.execute(
+                "SELECT * FROM economy_ledger WHERE actor_id=? OR target_id=? ORDER BY id DESC LIMIT ?",
+                (player_id, player_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def has_admin_role(
         self, player_id: int, configured_admins: frozenset[int], minimum: str = "admin"
     ) -> bool:
@@ -415,6 +443,7 @@ class GameService:
                 "UPDATE players SET weekly_date=?,coins=coins+?,energy=min(max_energy,energy+50) WHERE telegram_id=?",
                 (week, reward, player_id),
             )
+            self._ledger(con, player_id, None, "coins", reward, "weekly_reward", week)
             return {"week": week, "coins": reward}
 
     def give_coins(self, sender_id: int, target_id: int, amount: int) -> dict:
@@ -429,6 +458,7 @@ class GameService:
                 raise GameError("You do not have enough coins.")
             con.execute("UPDATE players SET coins=coins-? WHERE telegram_id=?", (amount, sender_id))
             con.execute("UPDATE players SET coins=coins+? WHERE telegram_id=?", (amount, target_id))
+            self._ledger(con, sender_id, target_id, "coins", amount, "gift")
             return {"amount": amount, "target": target["display_name"]}
 
     def quests(self, player_id: int) -> list[dict]:
@@ -1058,6 +1088,7 @@ class GameService:
         with self.db.transaction() as con:
             self._require_player(con, player_id)
             self._add_coins(con, player_id, amount)
+            self._ledger(con, player_id, None, "coins", amount, "admin_grant")
             return True
 
     def admin_ban(self, target_id: int, reason: str, admin_id: int, duration_minutes: int = 0) -> bool:

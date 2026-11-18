@@ -88,6 +88,9 @@ def test_weekly_reward_and_coin_gifting_are_bounded_and_idempotent(game):
     assert sent["target"] == "Two"
     with pytest.raises(GameError, match="between 1 and 5,000"):
         service.give_coins(101, 202, 5001)
+    history = service.economy_history(101)
+    assert {row["action"] for row in history} >= {"weekly_reward", "gift"}
+    assert len(service.economy_history(101, 1)) == 1
 
 
 def test_team_power_includes_configured_members(game):
