@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from monarchbot import handlers
+from monarchbot.config import Settings
 
 
 class FakeMessage:
@@ -47,6 +48,13 @@ class FakeCallbackUpdate(FakeUpdate):
     def __init__(self, data: str, user_id: int = 101):
         super().__init__(user_id)
         self.callback_query = FakeCallbackQuery(data, user_id)
+
+
+def context_for(service):
+    application = handlers.build_application(
+        Settings("123456789:TEST_TOKEN_NEVER_USED", ":memory:", frozenset()), service
+    )
+    return SimpleNamespace(application=application)
 
 
 @pytest.mark.asyncio
@@ -157,6 +165,79 @@ async def test_battle_action_callback_commits_and_refreshes_screen(game):
     assert update.callback_query.answers == [{"text": None}]
     assert update.callback_query.edits[0][0].startswith("CRIMSON GATE · TURN 2")
     assert service.battle_status(101)["turn"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action,first_line",
+    [
+        ("profile", "👤 <b>HUNTER PROFILE</b>"),
+        ("home", "MONARCH HUNTER HUB"),
+        ("about", "MONARCH is an original"),
+        ("help", "Use /help"),
+        ("daily", "Daily reward claimed:"),
+        ("inventory", "🎒 <b>INVENTORY</b>"),
+        ("companions", "ECHO COMPANIONS"),
+        ("guild", "Guilds:"),
+        ("raid", "WORLD RAID"),
+        ("tournament", "WEEKLY ARENA"),
+        ("market", "MARKET"),
+        ("unknown", "Use /help"),
+    ],
+)
+async def test_menu_callback_routes_render_expected_destinations(game, action, first_line):
+    service, _, _ = game
+    service.register(101, "tester", "Test Hunter")
+    update = FakeCallbackUpdate(f"m:{action}")
+    await handlers._menu_callback(update, context_for(service))
+    assert update.callback_query.answers == [{"text": None}]
+    assert update.callback_query.edits[0][0].startswith(first_line)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category", ["classes", "dungeons", "items", "companions"])
+async def test_codex_callbacks_render_each_catalog_category(game, category):
+    service, _, _ = game
+    service.register(101, "tester", "Test Hunter")
+    update = FakeCallbackUpdate(f"c:{category}")
+    await handlers._codex_callback(update, context_for(service))
+    assert update.callback_query.answers == [{"text": None}]
+    assert update.callback_query.edits
+    assert update.callback_query.edits[0][1]["reply_markup"].inline_keyboard
+
+
+@pytest.mark.asyncio
+async def test_small_command_surface_renders_real_player_data(game):
+    service, _, _ = game
+    service.register(101, "tester", "Test Hunter")
+    context = context_for(service)
+
+    class Args:
+        def __init__(self, *args):
+            self.args = list(args)
+
+    choose = FakeUpdate(101)
+    choose.args = []
+    await handlers.choose_class(choose, SimpleNamespace(application=context.application, args=[]))
+    assert "Awakening classes" in choose.effective_message.replies[0]
+
+    choose_class = FakeUpdate(101)
+    await handlers.choose_class(
+        choose_class, SimpleNamespace(application=context.application, args=["assassin"])
+    )
+    assert "Assassin" in choose_class.effective_message.replies[0]
+
+    daily_status = FakeUpdate(101)
+    await handlers.daily_status(daily_status, SimpleNamespace(application=context.application, args=[]))
+    assert "DAILY STATUS" in daily_status.effective_message.replies[0]
+
+    shop = FakeUpdate(101)
+    await handlers.shop(shop, SimpleNamespace(application=context.application, args=[]))
+    assert "HUNTER SUPPLY" in shop.effective_message.replies[0]
+
+    battle_status = FakeUpdate(101)
+    await handlers.battle_status(battle_status, SimpleNamespace(application=context.application, args=[]))
+    assert "no active battle" in battle_status.effective_message.replies[0].lower()
 
 
 @pytest.mark.asyncio
