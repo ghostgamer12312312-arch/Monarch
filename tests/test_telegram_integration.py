@@ -18,6 +18,21 @@ class FakeMessage:
         self.reply_kwargs.append(kwargs)
 
 
+class FakeCallbackQuery:
+    def __init__(self, data: str, user_id: int = 101):
+        self.data = data
+        self.from_user = SimpleNamespace(id=user_id)
+        self.message = FakeMessage()
+        self.answers: list[dict] = []
+        self.edits: list[tuple[str, dict]] = []
+
+    async def answer(self, text=None, **kwargs):
+        self.answers.append({"text": text, **kwargs})
+
+    async def edit_message_text(self, text, **kwargs):
+        self.edits.append((text, kwargs))
+
+
 class FakeUpdate:
     def __init__(self, user_id: int):
         self.update_id = 1
@@ -26,6 +41,12 @@ class FakeUpdate:
         )
         self.effective_message = FakeMessage()
         self.callback_query = None
+
+
+class FakeCallbackUpdate(FakeUpdate):
+    def __init__(self, data: str, user_id: int = 101):
+        super().__init__(user_id)
+        self.callback_query = FakeCallbackQuery(data, user_id)
 
 
 @pytest.mark.asyncio
@@ -103,6 +124,39 @@ async def test_maintenance_gate_blocks_regular_handler_but_not_help(game):
 def test_main_menu_exposes_real_inline_destinations():
     callback_data = {button.callback_data for row in handlers.main_menu().inline_keyboard for button in row}
     assert {"m:dungeons", "m:daily", "m:raid", "m:market", "m:about", "m:help"} <= callback_data
+
+
+@pytest.mark.asyncio
+async def test_dungeon_button_uses_server_battle_service_and_renders_turn(game):
+    service, _, _ = game
+    service.register(101, "tester", "Test Hunter")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={"game": service, "settings": SimpleNamespace(admin_ids=frozenset())}
+        )
+    )
+    update = FakeCallbackUpdate("m:battle_gate")
+    await handlers._menu_callback(update, context)
+    assert update.callback_query.answers == [{"text": None}]
+    assert update.callback_query.edits[0][0].startswith("CRIMSON GATE · TURN 1")
+    assert service.battle_status(101)["dungeon_id"] == "gate"
+
+
+@pytest.mark.asyncio
+async def test_battle_action_callback_commits_and_refreshes_screen(game):
+    service, _, _ = game
+    service.register(101, "tester", "Test Hunter")
+    battle = service.start_battle(101, "gate")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={"game": service, "settings": SimpleNamespace(admin_ids=frozenset())}
+        )
+    )
+    update = FakeCallbackUpdate(f"b:{battle['id']}:{battle['turn']}:attack")
+    await handlers.battle_callback(update, context)
+    assert update.callback_query.answers == [{"text": None}]
+    assert update.callback_query.edits[0][0].startswith("CRIMSON GATE · TURN 2")
+    assert service.battle_status(101)["turn"] == 2
 
 
 @pytest.mark.asyncio

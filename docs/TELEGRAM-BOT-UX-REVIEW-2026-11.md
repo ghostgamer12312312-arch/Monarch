@@ -1,6 +1,6 @@
 # Telegram bot UX review — 2026-11-20
 
-The four requested public bot profiles were checked through their public Telegram landing pages. Public pages expose identity, profile text, community links, and a Start Bot entry point, but they do not expose the post-start replies, private command flows, or live inline keyboards without a Telegram client session.
+The four requested public bot profiles were checked through their public Telegram landing pages, and each Start Bot action was attempted in the sandbox browser. Public pages expose identity, profile text, community links, and a Start Bot entry point, but the Start Bot deep link requires an authenticated Telegram client session; no post-start replies, private command flows, or live inline keyboards were exposed in this environment.
 
 ## Observed patterns
 
@@ -18,7 +18,7 @@ The battle callback retains stale-turn protection, transaction-first behavior, c
 
 ## Remaining live verification
 
-A local build and the complete automated suite pass, but the public landing pages cannot verify live post-start UI. A real test-bot session should still check callback rendering, Telegram message edit permissions, command scopes, group privacy behavior, and rate limits. Community and update links can be added later when the owner supplies them.
+A local build and the complete automated suite pass, but the public landing pages cannot verify live post-start UI. A real logged-in test-bot session should still check callback rendering, Telegram message edit permissions, command scopes, group privacy behavior, and rate limits. Community and update links can be added later when the owner supplies them.
 
 ## References
 

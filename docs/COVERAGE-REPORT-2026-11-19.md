@@ -9,7 +9,7 @@ PYTHONPATH=. .venv/bin/coverage run --branch -m pytest -q
 .venv/bin/coverage html -d coverage-html
 ```
 
-Result: **43 passed in 2.75 seconds**. The report was generated with Coverage.py 7.x after installing the development dependency declared in `requirements-dev.txt`.
+Result: **45 passed in 2.90 seconds**. The report was generated with Coverage.py 7.x after installing the development dependency declared in `requirements-dev.txt`.
 
 ## Coverage summary
 
@@ -18,13 +18,13 @@ Result: **43 passed in 2.75 seconds**. The report was generated with Coverage.py
 | `monarchbot/database.py` | 64 | 1 | 12 | 1 | 97% |
 | `monarchbot/service.py` | 682 | 144 | 210 | 57 | 74% |
 | `monarchbot/marketplace.py` | 87 | 12 | 28 | 12 | 79% |
-| `monarchbot/handlers.py` | 729 | 490 | 300 | 8 | 25% |
+| `monarchbot/handlers.py` | 729 | 453 | 300 | 13 | 29% |
 | `monarchbot/social.py` | 212 | 32 | 50 | 18 | 80% |
 | `monarchbot/tournament.py` | 48 | 3 | 14 | 3 | 90% |
-| `tests/test_telegram_integration.py` | 80 | 0 | 0 | 0 | 100% |
-| **All measured Python files** | **2,486** | **706** | **646** | **108** | **64%** |
+| `tests/test_telegram_integration.py` | 116 | 0 | 0 | 0 | 100% |
+| **All measured Python files** | **2,522** | **669** | **646** | **113** | **66%** |
 
-The handler percentage is improving because local integration tests now exercise bot metadata publication, `/about`, maintenance gating, inline destinations, and safe HTML profile/inventory markup. The suite still does not connect to Telegram or construct full `Update` objects for every command. The business rules behind the moderator commands are exercised in the service layer, where SQLite transactions and authorization decisions occur. Real Telegram delivery, chat administrator rights, command scopes, and network rate limits remain external integration work.
+The handler percentage is improving because local integration tests now exercise bot metadata publication, `/about`, maintenance gating, inline destinations, dungeon entry, battle-turn callbacks, and safe HTML profile/inventory markup. The suite still does not connect to Telegram or construct full `Update` objects for every command. The business rules behind the moderator commands are exercised in the service layer, where SQLite transactions and authorization decisions occur. Real Telegram delivery, chat administrator rights, command scopes, and network rate limits remain external integration work.
 
 ## New moderator and administration behavior covered
 
@@ -32,7 +32,7 @@ The handler percentage is improving because local integration tests now exercise
 
 `tests/test_database.py::test_schema_initializes_idempotently_and_contains_core_tables` verifies the versioned schema and the presence of `admin_roles`, `admin_audit`, `bot_settings`, and `economy_ledger`. The database suite also checks idempotent initialization, unknown future-version rejection, shared in-memory persistence, and active-battle uniqueness.
 
-`tests/test_handlers.py::test_all_commands_and_interactive_callbacks_are_registered` verifies that every command map entry is installed and that public commands include `/about` and `/economy_history`. `tests/test_telegram_integration.py` verifies profile metadata publication, the `/about` response, maintenance gating, inline menu destinations, and escaped HTML profile/inventory output with fake Telegram objects. These tests do not claim live Telegram execution.
+`tests/test_handlers.py::test_all_commands_and_interactive_callbacks_are_registered` verifies that every command map entry is installed and that public commands include `/about` and `/economy_history`. `tests/test_telegram_integration.py` verifies profile metadata publication, the `/about` response, maintenance gating, inline menu destinations, dungeon entry, battle-turn callbacks, and escaped HTML profile/inventory output with fake Telegram objects. These tests do not claim live Telegram execution.
 
 The social and marketplace tests cover the economy ledger records created by weekly rewards, player gifts, and market sales. The new ledger records are transactional with the balance mutation, and `/economy_history` limits queries to 50 rows even when a larger limit is supplied.
 
@@ -46,14 +46,14 @@ monarchbot/backup.py           52     18     12      6    62%
 monarchbot/catalog.py          22      0      0      0   100%
 monarchbot/config.py           31      6       6      3    76%
 monarchbot/database.py         64      1      12      1    97%
-monarchbot/handlers.py        729    490     300      8    25%
+monarchbot/handlers.py        729    453     300     13    29%
 monarchbot/marketplace.py      87     12      28     12    79%
 monarchbot/service.py         682    144     210     57    74%
 monarchbot/social.py          212     32      50     18    80%
 monarchbot/tournament.py       48      3      14      3    90%
 -----------------------------------------------------------------------
-tests/test_telegram_integration.py 80      0       0      0   100%
-TOTAL                        2486    706     646    108    64%
+tests/test_telegram_integration.py 116     0       0      0   100%
+TOTAL                        2522    669     646    113    66%
 ```
 
 The generated interactive HTML report is intentionally not committed because it contains machine-generated files. Recreate it with `coverage html -d coverage-html` and open `coverage-html/index.html` locally.
