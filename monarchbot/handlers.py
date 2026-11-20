@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from functools import wraps
+from html import escape
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
@@ -136,6 +137,41 @@ def _bar(value: int, maximum: int, width: int = 12) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def _profile_text(profile: dict) -> str:
+    guild = profile["guild"]["name"] if profile["guild"] else "No guild yet"
+    class_info = CLASSES.get(str(profile["class_id"]), {})
+    xp_goal = max(1, int(profile["level"]) * 100)
+    xp_bar = _bar(int(profile["xp"]), xp_goal, 10)
+    return (
+        "👤 <b>HUNTER PROFILE</b>\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"🪪 <b>{escape(str(profile['display_name']))}</b> · Level {profile['level']} · Rank {profile['rank']}\n"
+        f"✨ XP <code>{xp_bar}</code> {profile['xp']}/{xp_goal}\n\n"
+        f"⚔️ <b>{escape(str(profile['class_name']))}</b> · <i>{escape(str(class_info.get('skill', 'Awakening skill')))}</i>\n"
+        f"❤️ HP <b>{profile['base_hp']}</b>   🗡 ATK <b>{profile['attack']}</b>   🔷 Mana <b>{profile['max_mana']}</b>\n"
+        f"🪙 Coins <b>{profile['coins']:,}</b>   🔥 Essence <b>{profile['essence']:,}</b>\n"
+        f"⚡ Energy <b>{profile['energy']}/{profile['max_energy']}</b>\n\n"
+        f"🐾 Echo ally: <b>{escape(str(profile['companion_name']))}</b>\n"
+        f"🏰 Guild: <b>{escape(str(guild))}</b>"
+    )
+
+
+def _inventory_text(rows: list[dict]) -> str:
+    if not rows:
+        return "🎒 <b>INVENTORY</b>\n━━━━━━━━━━━━━━━━\nYour satchel is empty. Visit /shop to prepare for your next hunt."
+    icons = {"healing_tonic": "🧪", "mana_vial": "🔷", "energy_shard": "⚡"}
+    lines = ["🎒 <b>INVENTORY</b>", "━━━━━━━━━━━━━━━━"]
+    for row in rows:
+        item_id = str(row["item_id"])
+        item = ITEMS.get(item_id, {})
+        lines.append(
+            f"{icons.get(item_id, '📦')} <b>{escape(str(row['name']))}</b> × <code>{row['quantity']}</code>\n"
+            f"   <i>{escape(str(item.get('description', 'Stored hunter supply.')))}</i>"
+        )
+    lines.append("\nUse /use energy_shard or battle buttons to consume supplies.")
+    return "\n".join(lines)
+
+
 def _battle_markup(battle: dict) -> InlineKeyboardMarkup:
     bid, turn = battle["id"], battle["turn"]
     return InlineKeyboardMarkup(
@@ -248,11 +284,10 @@ async def menu(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
     if p:
-        guild = p["guild"]["name"] if p["guild"] else "None"
         await update.effective_message.reply_text(
-            f"HUNTER PROFILE — {p['display_name']}\nRank: {p['rank']} (Level {p['level']})\n"
-            f"Class: {p['class_name']}\nXP: {p['xp']}/{p['level'] * 100}\nCoins: {p['coins']:,} · Essence: {p['essence']:,}\n"
-            f"Energy: {p['energy']}/{p['max_energy']}\nCombat: {p['attack']} ATK · {p['base_hp']} HP · {p['max_mana']} Mana\nEcho ally: {p['companion_name']}\nGuild: {guild}"
+            _profile_text(p),
+            parse_mode="HTML",
+            reply_markup=main_menu(),
         )
 
 
@@ -590,10 +625,9 @@ async def battle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await _call(update, context.application.bot_data["game"].inventory, _uid(update))
     if rows is not None:
-        text = "INVENTORY\n" + (
-            "\n".join(f"{x['name']} × {x['quantity']} ({x['item_id']})" for x in rows) if rows else "Empty"
+        await update.effective_message.reply_text(
+            _inventory_text(rows), parse_mode="HTML", reply_markup=main_menu()
         )
-        await update.effective_message.reply_text(text)
 
 
 @_protected
@@ -1233,19 +1267,22 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     action = query.data[2:]
     if action == "profile":
         result = await asyncio.to_thread(context.application.bot_data["game"].profile, query.from_user.id)
-        text = f"{result['display_name']} · Level {result['level']} · {result['class_name']}\nHP {result['base_hp']} · ATK {result['attack']} · Energy {result['energy']}/{result['max_energy']}"
+        text = _profile_text(result)
     elif action == "dungeons":
         text = "CHOOSE YOUR HUNT\n\nSelect a dungeon to begin. Higher tiers unlock as you grow."
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    f"{DUNGEONS[key]['name']} · Tier {DUNGEONS[key]['tier']} · {DUNGEONS[key]['energy']} energy",
+                    callback_data=f"m:battle_{key}",
+                )
+            ]
+            for key in ("gate", "rift", "abyss")
+        ]
+        buttons.append([InlineKeyboardButton("Back to Hub", callback_data="m:home")])
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("Crimson Gate · 10 energy", callback_data="m:battle_gate")],
-                    [InlineKeyboardButton("Forgotten Rift · 20 energy", callback_data="m:battle_rift")],
-                    [InlineKeyboardButton("Abyssal Citadel · 35 energy", callback_data="m:battle_abyss")],
-                    [InlineKeyboardButton("Back to Hub", callback_data="m:home")],
-                ]
-            ),
+            reply_markup=InlineKeyboardMarkup(buttons),
         )
         return
     elif action in {"battle_gate", "battle_rift", "battle_abyss"}:
@@ -1287,7 +1324,7 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         text = f"Daily reward claimed: {result['coins']} coins and +{result['energy_gained']} energy."
     elif action == "inventory":
         rows = await asyncio.to_thread(context.application.bot_data["game"].inventory, query.from_user.id)
-        text = "INVENTORY\n" + ("\n".join(f"{r['name']} ×{r['quantity']}" for r in rows) if rows else "Empty")
+        text = _inventory_text(rows)
     elif action == "companions":
         rows = await asyncio.to_thread(context.application.bot_data["game"].companions, query.from_user.id)
         text = "ECHO COMPANIONS\n" + (
@@ -1319,7 +1356,7 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
     else:
         text = "Use /help to see available actions."
-    await query.edit_message_text(text, reply_markup=main_menu())
+    await query.edit_message_text(text, reply_markup=main_menu(), parse_mode="HTML")
 
 
 async def _menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

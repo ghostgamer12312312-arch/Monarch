@@ -11,9 +11,11 @@ from monarchbot import handlers
 class FakeMessage:
     def __init__(self):
         self.replies: list[str] = []
+        self.reply_kwargs: list[dict] = []
 
-    async def reply_text(self, text, **_kwargs):
+    async def reply_text(self, text, **kwargs):
         self.replies.append(text)
+        self.reply_kwargs.append(kwargs)
 
 
 class FakeUpdate:
@@ -101,3 +103,24 @@ async def test_maintenance_gate_blocks_regular_handler_but_not_help(game):
 def test_main_menu_exposes_real_inline_destinations():
     callback_data = {button.callback_data for row in handlers.main_menu().inline_keyboard for button in row}
     assert {"m:dungeons", "m:daily", "m:raid", "m:market", "m:about", "m:help"} <= callback_data
+
+
+@pytest.mark.asyncio
+async def test_profile_and_inventory_use_rich_safe_markup(game):
+    service, _, _ = game
+    service.register(101, "tester", "<Hunter>")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={"game": service, "settings": SimpleNamespace(admin_ids=frozenset())}
+        )
+    )
+    profile_update = FakeUpdate(101)
+    await handlers.profile(profile_update, context)
+    assert "<b>HUNTER PROFILE</b>" in profile_update.effective_message.replies[0]
+    assert "&lt;Hunter&gt;" in profile_update.effective_message.replies[0]
+    assert profile_update.effective_message.reply_kwargs[0]["parse_mode"] == "HTML"
+
+    inventory_update = FakeUpdate(101)
+    await handlers.inventory(inventory_update, context)
+    assert "<b>INVENTORY</b>" in inventory_update.effective_message.replies[0]
+    assert inventory_update.effective_message.reply_kwargs[0]["parse_mode"] == "HTML"
