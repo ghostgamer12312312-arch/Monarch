@@ -709,7 +709,8 @@ class GameService:
                     self._add_coins(con, player_id, coins)
                     self._add_essence(con, player_id, essence)
                     levels = self._award_xp(con, player_id, xp)
-                    self._increment_quest(con, player_id, "clear_gate", 1)
+                    if battle["dungeon_id"] == "gate":
+                        self._increment_quest(con, player_id, "clear_gate", 1)
                     self._tournament_score(con, player_id, int(d["tier"]) * 100)
                     self._guild_xp(con, player_id, max(1, int(d["tier"]) * 8))
                     reward = {"coins": coins, "xp": xp, "essence": essence, "levels": levels}

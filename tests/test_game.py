@@ -86,6 +86,17 @@ def test_turn_battle_pays_rewards_once_and_records_quest(game):
         service.battle_action(101, battle["id"], battle["turn"], "attack")
 
 
+def test_non_gate_victory_does_not_claim_gate_quest(game):
+    service, _, _ = game
+    register(game)
+    with service.db.transaction() as con:
+        con.execute("UPDATE players SET level=3 WHERE telegram_id=101")
+    battle = win_battle(service, 101, service.start_battle(101, "rift"))
+    assert battle["status"] == "victory"
+    quest = next(q for q in service.quests(101) if q["id"] == "clear_gate")
+    assert quest["progress"] == 0
+
+
 def test_battle_turn_and_owner_checks_prevent_replay_or_theft(game):
     service, _, _ = game
     register(game, 101)

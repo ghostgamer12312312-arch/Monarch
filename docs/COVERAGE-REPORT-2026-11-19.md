@@ -9,20 +9,20 @@ PYTHONPATH=. .venv/bin/coverage run --branch -m pytest -q
 .venv/bin/coverage html -d coverage-html
 ```
 
-Result: **62 passed in 4.68 seconds**. The report was generated with Coverage.py 7.x after installing the development dependency declared in `requirements-dev.txt`.
+Result: **63 passed in 4.39 seconds**. The report was generated with Coverage.py 7.x after installing the development dependency declared in `requirements-dev.txt`.
 
 ## Coverage summary
 
 | Module | Statements | Missing | Branches | Partial branches | Coverage |
 |---|---:|---:|---:|---:|---:|
 | `monarchbot/database.py` | 64 | 1 | 12 | 1 | 97% |
-| `monarchbot/service.py` | 682 | 144 | 210 | 57 | 74% |
+| `monarchbot/service.py` | 683 | 138 | 212 | 57 | 74% |
 | `monarchbot/marketplace.py` | 87 | 12 | 28 | 12 | 79% |
 | `monarchbot/handlers.py` | 729 | 392 | 300 | 17 | 38% |
 | `monarchbot/social.py` | 212 | 32 | 50 | 18 | 80% |
 | `monarchbot/tournament.py` | 48 | 3 | 14 | 3 | 90% |
 | `tests/test_telegram_integration.py` | 163 | 1 | 0 | 0 | 99% |
-| **All measured Python files** | **2,569** | **603** | **646** | **117** | **70%** |
+| **All measured Python files** | **2,579** | **603** | **648** | **117** | **70%** |
 
 The handler percentage is improving because local integration tests now exercise bot metadata publication, `/about`, maintenance gating, inline destinations, dungeon entry, battle-turn callbacks, the menu and Codex matrices, and safe HTML profile/inventory markup. The suite still does not connect to Telegram or construct full `Update` objects for every command. The business rules behind the moderator commands are exercised in the service layer, where SQLite transactions and authorization decisions occur. Real Telegram delivery, chat administrator rights, command scopes, and network rate limits remain external integration work.
 
@@ -48,12 +48,12 @@ monarchbot/config.py           31      6       6      3    76%
 monarchbot/database.py         64      1      12      1    97%
 monarchbot/handlers.py        729    392     300     17    38%
 monarchbot/marketplace.py      87     12      28     12    79%
-monarchbot/service.py         682    144     210     57    74%
+monarchbot/service.py         683    138     212     57    74%
 monarchbot/social.py          212     32      50     18    80%
 monarchbot/tournament.py       48      3      14      3    90%
 -----------------------------------------------------------------------
 tests/test_telegram_integration.py 163     1       0      0    99%
-TOTAL                        2569    603     646    117    70%
+TOTAL                        2579    603     648    117    70%
 ```
 
 The generated interactive HTML report is intentionally not committed because it contains machine-generated files. Recreate it with `coverage html -d coverage-html` and open `coverage-html/index.html` locally.
