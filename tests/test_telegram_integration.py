@@ -96,3 +96,8 @@ async def test_maintenance_gate_blocks_regular_handler_but_not_help(game):
     await handlers.help_command(help_update, context)
     assert "MONARCH" in help_update.effective_message.replies[0]
     assert "Admin:" not in help_update.effective_message.replies[0]
+
+
+def test_main_menu_exposes_real_inline_destinations():
+    callback_data = {button.callback_data for row in handlers.main_menu().inline_keyboard for button in row}
+    assert {"m:dungeons", "m:daily", "m:raid", "m:market", "m:about", "m:help"} <= callback_data

@@ -121,7 +121,11 @@ def main_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Market", callback_data="m:market"),
             ],
             [InlineKeyboardButton("Codex", callback_data="m:codex")],
-            [InlineKeyboardButton("Echo Companions", callback_data="m:companions")],
+            [
+                InlineKeyboardButton("Echo Companions", callback_data="m:companions"),
+                InlineKeyboardButton("About", callback_data="m:about"),
+            ],
+            [InlineKeyboardButton("Help", callback_data="m:help")],
         ]
     )
 
@@ -1231,7 +1235,35 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         result = await asyncio.to_thread(context.application.bot_data["game"].profile, query.from_user.id)
         text = f"{result['display_name']} · Level {result['level']} · {result['class_name']}\nHP {result['base_hp']} · ATK {result['attack']} · Energy {result['energy']}/{result['max_energy']}"
     elif action == "dungeons":
-        text = "Choose a dungeon:\n/battle gate — Crimson Gate\n/battle rift — Forgotten Rift\n/battle abyss — Abyssal Citadel"
+        text = "CHOOSE YOUR HUNT\n\nSelect a dungeon to begin. Higher tiers unlock as you grow."
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("Crimson Gate · 10 energy", callback_data="m:battle_gate")],
+                    [InlineKeyboardButton("Forgotten Rift · 20 energy", callback_data="m:battle_rift")],
+                    [InlineKeyboardButton("Abyssal Citadel · 35 energy", callback_data="m:battle_abyss")],
+                    [InlineKeyboardButton("Back to Hub", callback_data="m:home")],
+                ]
+            ),
+        )
+        return
+    elif action in {"battle_gate", "battle_rift", "battle_abyss"}:
+        dungeon_id = action.removeprefix("battle_")
+        result = await asyncio.to_thread(
+            context.application.bot_data["game"].start_battle, query.from_user.id, dungeon_id
+        )
+        await _show_battle(update, result, edit=True)
+        return
+    elif action == "home":
+        await query.edit_message_text(
+            "MONARCH HUNTER HUB\nChoose your next destination.", reply_markup=main_menu()
+        )
+        return
+    elif action == "about":
+        text = BOT_DESCRIPTION
+    elif action == "help":
+        text = "Use /help for every command. Start with /class, /battle gate, /daily, and /codex."
     elif action == "codex":
         text = "CODEX\nChoose a section below."
         await query.edit_message_text(

@@ -94,6 +94,8 @@ For local moderator testing and deployment, see [`docs/MODERATOR-TESTING-AND-DEP
 
 The package transition and local Telegram integration-test boundary are documented in [`docs/ARCHITECTURE-TRANSITION.md`](docs/ARCHITECTURE-TRANSITION.md).
 
+The public Telegram UX comparison and resulting inline-navigation changes are documented in [`docs/TELEGRAM-BOT-UX-REVIEW-2026-11.md`](docs/TELEGRAM-BOT-UX-REVIEW-2026-11.md).
+
 ## Bot profile
 
 The Telegram bot name is **Monarch: Rift Hunters**. Its short description is: “Turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market.” The full About description is published automatically during application startup and is also available through `/about`. The latest Ultimate review and next-change priorities are recorded in [`docs/ULTIMATE-REVIEW-2026-11-19.md`](docs/ULTIMATE-REVIEW-2026-11-19.md).
