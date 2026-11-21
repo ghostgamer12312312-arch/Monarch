@@ -49,15 +49,23 @@ def test_daily_streak_energy_and_duplicate_claim(game):
     assert service.daily_status(101)["next_streak"] == 1
 
 
-def test_class_can_be_chosen_once_and_harder_dungeon_has_level_gate(game):
+def test_class_respec_rules_and_harder_dungeon_has_level_gate(game):
     service, _, _ = game
     register(game)
     chosen = service.choose_class(101, "assassin")
     assert chosen["name"] == "Assassin"
-    with pytest.raises(GameError, match="already chosen"):
-        service.choose_class(101, "arcanist")
+    changed = service.choose_class(101, "arcanist")
+    assert changed["changed"] is True
+    with pytest.raises(GameError, match="level 20"):
+        service.choose_class(101, "vanguard")
     with pytest.raises(GameError, match="level 3"):
         service.start_battle(101, "rift")
+    with service.db.transaction() as con:
+        con.execute("UPDATE players SET level=20 WHERE telegram_id=101")
+    second = service.choose_class(101, "vanguard")
+    assert second["changed"] is True
+    with pytest.raises(GameError, match="both class changes"):
+        service.choose_class(101, "assassin")
 
 
 def test_start_battle_charges_energy_and_creates_persistent_turns(game):

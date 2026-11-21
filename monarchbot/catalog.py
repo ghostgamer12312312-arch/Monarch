@@ -60,6 +60,8 @@ DUNGEONS: dict[str, dict[str, object]] = {
     },
 }
 
+HUNT_ENERGY_COST: dict[str, int] = {"gate": 5, "rift": 9, "abyss": 14}
+
 ENEMIES: dict[str, tuple[dict[str, object], ...]] = {
     "gate": (
         {"name": "Rift Hound", "hp_scale": 0.9, "attack_scale": 0.85},
@@ -125,3 +127,30 @@ MARKET_FEE_PERCENT = 5
 MARKET_TTL_SECONDS = 7 * 24 * 60 * 60
 TOURNAMENT_ENTRY_FEE = 100
 TOURNAMENT_PRIZES = (1000, 500, 250)
+
+CLASS_CRIT = {"vanguard": 0.08, "assassin": 0.20, "arcanist": 0.12}
+CLASS_DODGE = {"vanguard": 0.05, "assassin": 0.18, "arcanist": 0.08}
+SKILL_COOLDOWN_TURNS = 2
+ENEMY_SPECIAL_EVERY = 3
+EXPLORE_ENERGY_COST = 8
+
+REGIONS: dict[str, dict[str, object]] = {
+    "crimson_gate": {
+        "name": "Crimson Gate",
+        "dungeon": "gate",
+        "level": 1,
+        "description": "Scorched outpost where rift hounds prowl. A safe first hunt.",
+    },
+    "forgotten_rift": {
+        "name": "Forgotten Rift",
+        "dungeon": "rift",
+        "level": 3,
+        "description": "Cracked ruins leaking old magic and hollow stalkers.",
+    },
+    "abyssal_citadel": {
+        "name": "Abyssal Citadel",
+        "dungeon": "abyss",
+        "level": 8,
+        "description": "A black keep ruled by rift tyrants. Only veterans survive.",
+    },
+}

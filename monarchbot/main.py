@@ -38,7 +38,9 @@ def main() -> None:
     reset_thread.start()
     logging.getLogger(__name__).info("Starting Monarch polling bot; database=%s", settings.database_path)
     try:
-        application.run_polling(allowed_updates=None, drop_pending_updates=False)
+        application.run_polling(
+            allowed_updates=None, drop_pending_updates=False, bootstrap_retries=10
+        )
     finally:
         stop.set()
         db.close()

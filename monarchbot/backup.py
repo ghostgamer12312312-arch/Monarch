@@ -33,7 +33,12 @@ def backup_database(source_path: str | Path, destination_path: str | Path) -> Pa
         destination_con = None
         source_con.close()
         source_con = None
-        os.link(temporary, destination)
+        try:
+            marker = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            raise FileExistsError(f"Backup destination already exists: {destination}") from None
+        os.close(marker)
+        os.replace(temporary, destination)
         return destination
     finally:
         if destination_con is not None:

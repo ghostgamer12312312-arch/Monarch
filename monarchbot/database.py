@@ -68,6 +68,9 @@ class Database:
                 columns = {row["name"] for row in con.execute("PRAGMA table_info(banned_players)").fetchall()}
                 if columns and "expires_at" not in columns:
                     con.execute("ALTER TABLE banned_players ADD COLUMN expires_at INTEGER")
+                player_columns = {row["name"] for row in con.execute("PRAGMA table_info(players)").fetchall()}
+                if player_columns and "class_changes" not in player_columns:
+                    con.execute("ALTER TABLE players ADD COLUMN class_changes INTEGER NOT NULL DEFAULT 0")
             con.executescript(
                 """
                 BEGIN IMMEDIATE;
@@ -87,6 +90,7 @@ class Database:
                     max_energy INTEGER NOT NULL DEFAULT 100 CHECK(max_energy >= 1),
                     class_id TEXT NOT NULL DEFAULT 'vanguard',
                     class_locked INTEGER NOT NULL DEFAULT 0 CHECK(class_locked IN (0,1)),
+                    class_changes INTEGER NOT NULL DEFAULT 0 CHECK(class_changes >= 0),
                     equipped_companion TEXT NOT NULL DEFAULT 'ash_hound',
                     daily_date TEXT,
                     daily_streak INTEGER NOT NULL DEFAULT 0 CHECK(daily_streak >= 0),

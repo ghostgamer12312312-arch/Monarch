@@ -10,12 +10,16 @@ from datetime import UTC, datetime, timedelta
 
 from .catalog import (
     BATTLE_TIMEOUT_SECONDS,
+    CLASS_CRIT,
+    CLASS_DODGE,
     CLASSES,
     COMPANION_EXTRACT_COST,
     COMPANIONS,
     DAILY_BASE_COINS,
     DAILY_MAX_STREAK_BONUS,
     DUNGEONS,
+    ENEMY_SPECIAL_EVERY,
+    EXPLORE_ENERGY_COST,
     ENEMIES,
     GUILD_DONATION_MAX,
     GUILD_DONATION_MIN,
@@ -23,8 +27,9 @@ from .catalog import (
     ITEMS,
     RAID_COOLDOWN_SECONDS,
     RAID_ENERGY_COST,
+    SKILL_COOLDOWN_TURNS,
     SKILL_MANA_COST,
-)
+    HUNT_ENERGY_COST,)
 from .database import Database
 
 
@@ -261,6 +266,60 @@ class GameService:
                 con.execute("SELECT * FROM players WHERE telegram_id = ?", (player_id,)).fetchone()
             ), created
 
+    def nickname(self, player_id: int, name: str) -> str:
+        cleaned = " ".join((name or "").split())[:32]
+        if len(cleaned) < 2:
+            raise GameError("Choose a nickname with at least 2 characters.")
+        if len(cleaned.split()) > 3:
+            raise GameError("Nicknames can be at most three words.")
+        with self.db.transaction() as con:
+            self._require_player(con, player_id)
+            con.execute("UPDATE players SET display_name=? WHERE telegram_id=?", (cleaned, player_id))
+        return cleaned
+
+    def explore(self, player_id: int) -> dict:
+        with self.db.transaction() as con:
+            p = self._require_player(con, player_id)
+            if int(p["energy"]) < EXPLORE_ENERGY_COST:
+                raise GameError(
+                    f"Exploring costs {EXPLORE_ENERGY_COST} energy. Claim /daily or use an Energy Shard."
+                )
+            con.execute(
+                "UPDATE players SET energy=energy-? WHERE telegram_id=?", (EXPLORE_ENERGY_COST, player_id)
+            )
+            self._increment_quest(con, player_id, "spend_energy", EXPLORE_ENERGY_COST)
+            level = int(p["level"])
+            roll = self.rng.random()
+            xp = 0
+            if roll < 0.50:
+                coins = max(10, 20 + level * 2) + self.rng.randint(0, 20)
+                self._add_coins(con, player_id, coins)
+                xp = 6 + level
+                result = {"outcome": "coins", "coins": coins, "xp": xp}
+            elif roll < 0.70:
+                essence = 1 + (1 if level >= 5 else 0)
+                self._add_essence(con, player_id, essence)
+                xp = 8 + level
+                result = {"outcome": "essence", "essence": essence, "xp": xp}
+            elif roll < 0.90:
+                item_id = self.rng.choice(["healing_tonic", "mana_vial", "energy_shard"])
+                con.execute(
+                    "INSERT INTO inventory(player_id,item_id,quantity) VALUES(?,?,1) ON CONFLICT(player_id,item_id) DO UPDATE SET quantity=quantity+1",
+                    (player_id, item_id),
+                )
+                xp = 5 + level
+                result = {"outcome": "item", "item": ITEMS[item_id]["name"], "xp": xp}
+            else:
+                coins = max(20, 45 + level * 4) + self.rng.randint(0, 30)
+                essence = 2
+                self._add_coins(con, player_id, coins)
+                self._add_essence(con, player_id, essence)
+                xp = 12 + level * 2
+                result = {"outcome": "rare", "coins": coins, "essence": essence, "xp": xp}
+            result["levels"] = self._award_xp(con, player_id, xp)
+            result["energy"] = int(p["energy"]) - EXPLORE_ENERGY_COST
+            return result
+
     def profile(self, player_id: int) -> dict:
         with self.db.reader() as con:
             p = self._require_player(con, player_id)
@@ -268,6 +327,9 @@ class GameService:
             guild = con.execute(
                 "SELECT g.id,g.name,g.level FROM guild_members m JOIN guilds g ON g.id=m.guild_id WHERE m.player_id=?",
                 (player_id,),
+            ).fetchone()
+            arena = con.execute(
+                "SELECT rating,wins,losses FROM arena_ratings WHERE player_id=?", (player_id,)
             ).fetchone()
             return {
                 **dict(p),
@@ -278,6 +340,9 @@ class GameService:
                 "attack": attack,
                 "max_mana": mana,
                 "guild": dict(guild) if guild else None,
+                "arena_rating": int(arena["rating"]) if arena else 1000,
+                "wins": int(arena["wins"]) if arena else 0,
+                "losses": int(arena["losses"]) if arena else 0,
             }
 
     def companions(self, player_id: int) -> list[dict]:
@@ -379,17 +444,44 @@ class GameService:
             raise GameError("Choose one of: vanguard, assassin, arcanist.")
         with self.db.transaction() as con:
             p = self._require_player(con, player_id)
-            if p["class_locked"]:
-                raise GameError("Your awakening class is already chosen and locked.")
             active = con.execute(
                 "SELECT 1 FROM active_battles WHERE player_id=? AND status='active'", (player_id,)
             ).fetchone()
             if active:
                 raise GameError("Finish or leave your current battle before choosing an awakening class.")
+            changes = int(p["class_changes"] or 0)
+            previous = str(p["class_id"])
+            if not p["class_locked"]:
+                con.execute(
+                    "UPDATE players SET class_id=?,class_locked=1,class_changes=0 WHERE telegram_id=?",
+                    (class_id, player_id),
+                )
+                return {
+                    "id": class_id,
+                    "name": CLASSES[class_id]["name"],
+                    "changed": False,
+                    "changes": 0,
+                    "remaining": 1 + (1 if int(p["level"]) >= 20 else 0),
+                }
+            if class_id == previous:
+                raise GameError("That is already your awakening class.")
+            if changes >= 1 and int(p["level"]) < 20:
+                raise GameError(
+                    "You already used your one free respec. Reach level 20 to unlock another class change."
+                )
+            if changes >= 2:
+                raise GameError("You have used both class changes: one free respec and the level 20 respec.")
             con.execute(
-                "UPDATE players SET class_id=?,class_locked=1 WHERE telegram_id=?", (class_id, player_id)
+                "UPDATE players SET class_id=?,class_changes=? WHERE telegram_id=?",
+                (class_id, changes + 1, player_id),
             )
-            return {"id": class_id, "name": CLASSES[class_id]["name"]}
+            return {
+                "id": class_id,
+                "name": CLASSES[class_id]["name"],
+                "changed": True,
+                "changes": changes + 1,
+                "remaining": (1 if int(p["level"]) >= 20 else 0) if changes + 1 < 2 else 0,
+            }
 
     def daily(self, player_id: int) -> dict:
         today = self._today()
@@ -529,7 +621,62 @@ class GameService:
             levels = self._award_xp(con, player_id, xp)
             return {"coins": coins, "xp": xp, "levels": levels}
 
-    def start_battle(self, player_id: int, dungeon_id: str) -> dict:
+    def _enemy_stats(self, p, dungeon_id: str, enemy_def: dict) -> tuple[int, int]:
+        dungeon = DUNGEONS[dungeon_id]
+        scale_hp = float(enemy_def["hp_scale"])
+        scale_attack = float(enemy_def["attack_scale"])
+        enemy_hp = max(1, int((int(dungeon["enemy_hp"]) + (int(p["level"]) - 1) * 8) * scale_hp))
+        enemy_attack = max(
+            1, int((int(dungeon["enemy_attack"]) + (int(p["level"]) - 1) * 1.5) * scale_attack)
+        )
+        return enemy_hp, enemy_attack
+
+    def hunt_preview(self, player_id: int, dungeon_id: str | None = None) -> dict:
+        now = int(self.epoch())
+        with self.db.transaction() as con:
+            p = self._require_player(con, player_id)
+            con.execute(
+                "UPDATE active_battles SET status='expired' WHERE player_id=? AND status='active' AND expires_at<=?",
+                (player_id, now),
+            )
+            active = con.execute(
+                "SELECT id FROM active_battles WHERE player_id=? AND status='active'", (player_id,)
+            ).fetchone()
+            if active:
+                raise GameError("Finish your active battle first. Use /battle_status or /flee.")
+            minimum = {"gate": 1, "rift": 3, "abyss": 8}
+            unlocked = [key for key, level in minimum.items() if int(p["level"]) >= level]
+            if dungeon_id is None:
+                dungeon_id = self.rng.choice(unlocked)
+            if dungeon_id not in DUNGEONS:
+                raise GameError("Choose /hunt gate, /hunt rift, or /hunt abyss.")
+            if dungeon_id not in unlocked:
+                raise GameError(f"You need hunter level {minimum[dungeon_id]} to hunt in this region.")
+            enemies = ENEMIES[dungeon_id]
+            index = self.rng.randrange(len(enemies))
+            enemy_def = enemies[index]
+            enemy_hp, enemy_attack = self._enemy_stats(p, dungeon_id, enemy_def)
+            cost = int(HUNT_ENERGY_COST[dungeon_id])
+            return {
+                "dungeon_id": dungeon_id,
+                "dungeon_name": DUNGEONS[dungeon_id]["name"],
+                "tier": int(DUNGEONS[dungeon_id]["tier"]),
+                "enemy_name": enemy_def["name"],
+                "enemy_index": index,
+                "enemy_hp": enemy_hp,
+                "enemy_attack": enemy_attack,
+                "level": int(p["level"]),
+                "energy": cost,
+                "player_energy": int(p["energy"]),
+            }
+
+    def start_battle(
+        self,
+        player_id: int,
+        dungeon_id: str,
+        enemy_index: int | None = None,
+        energy_cost: int | None = None,
+    ) -> dict:
         if dungeon_id not in DUNGEONS:
             raise GameError("Choose /battle gate, /battle rift, or /battle abyss.")
         now = int(self.epoch())
@@ -548,21 +695,19 @@ class GameService:
             ).fetchone()
             if active:
                 raise GameError("You already have an active battle. Use /battle_status or finish it first.")
-            cost = int(dungeon["energy"])
+            cost = int(energy_cost if energy_cost is not None else dungeon["energy"])
             if int(p["energy"]) < cost:
                 raise GameError(
-                    f"You need {cost} energy for this dungeon. Claim /daily or use an energy item."
+                    f"You need {cost} energy for this hunt. Claim /daily or use an energy item."
                 )
             con.execute("UPDATE players SET energy=energy-? WHERE telegram_id=?", (cost, player_id))
             self._increment_quest(con, player_id, "spend_energy", cost)
             hp, _, mana, _ = self._stats_with_companion(con, p)
-            enemy_def = self.rng.choice(ENEMIES[dungeon_id])
-            scale_hp = float(enemy_def["hp_scale"])
-            scale_attack = float(enemy_def["attack_scale"])
-            enemy_hp = max(1, int((int(dungeon["enemy_hp"]) + (int(p["level"]) - 1) * 8) * scale_hp))
-            enemy_attack = max(
-                1, int((int(dungeon["enemy_attack"]) + (int(p["level"]) - 1) * 1.5) * scale_attack)
-            )
+            enemies = ENEMIES[dungeon_id]
+            if enemy_index is not None and not 0 <= int(enemy_index) < len(enemies):
+                raise GameError("That enemy is no longer available. Try /hunt again.")
+            enemy_def = enemies[int(enemy_index)] if enemy_index is not None else self.rng.choice(enemies)
+            enemy_hp, enemy_attack = self._enemy_stats(p, dungeon_id, enemy_def)
             battle_id = uuid.uuid4().hex[:12]
             con.execute(
                 """INSERT INTO active_battles
@@ -585,8 +730,11 @@ class GameService:
                     now + BATTLE_TIMEOUT_SECONDS,
                 ),
             )
-            return self._battle_dict(
-                con.execute("SELECT * FROM active_battles WHERE id=?", (battle_id,)).fetchone()
+            return self._with_player(
+                self._battle_dict(
+                    con.execute("SELECT * FROM active_battles WHERE id=?", (battle_id,)).fetchone()
+                ),
+                p,
             )
 
     @staticmethod
@@ -594,6 +742,12 @@ class GameService:
         result = dict(row)
         result["result"] = json.loads(result.pop("result_json") or "{}")
         return result
+
+    @staticmethod
+    def _with_player(battle: dict, p) -> dict:
+        battle["player_name"] = str(p["display_name"])
+        battle["player_level"] = int(p["level"])
+        return battle
 
     def battle_status(self, player_id: int) -> dict | None:
         now = int(self.epoch())
@@ -607,10 +761,10 @@ class GameService:
             if int(row["expires_at"]) <= now:
                 con.execute("UPDATE active_battles SET status='expired' WHERE id=?", (row["id"],))
                 return None
-            return self._battle_dict(row)
+            return self._with_player(self._battle_dict(row), self._require_player(con, player_id))
 
     def battle_action(self, player_id: int, battle_id: str, expected_turn: int, action: str) -> dict:
-        if action not in {"attack", "guard", "skill", "potion", "mana", "flee"}:
+        if action not in {"attack", "guard", "dodge", "skill", "potion", "mana", "flee"}:
             raise GameError("Unknown battle action.")
         now = int(self.epoch())
         with self.db.transaction() as con:
@@ -623,40 +777,89 @@ class GameService:
             if int(battle["expires_at"]) <= now:
                 con.execute(
                     "UPDATE active_battles SET status='expired',result_json=? WHERE id=?",
-                    (json.dumps({"log": ["Battle expired."], "reward": {}}), battle_id),
+                    (json.dumps({"log": ["Battle expired."], "reward": {}, "state": {}}), battle_id),
                 )
-                return self._battle_dict(
-                    con.execute("SELECT * FROM active_battles WHERE id=?", (battle_id,)).fetchone()
+                return self._with_player(
+                    self._battle_dict(
+                        con.execute("SELECT * FROM active_battles WHERE id=?", (battle_id,)).fetchone()
+                    ),
+                    p,
                 )
             if int(battle["turn"]) != expected_turn:
                 raise GameError("That battle screen is out of date. Use /battle_status to refresh it.")
-            player_hp, enemy_hp, mana = int(battle["player_hp"]), int(battle["enemy_hp"]), int(battle["mana"])
-            pmax = int(battle["player_max_hp"])
-            player = p
-            _, attack, _, _ = self._stats_with_companion(con, player)
+            battle_data = json.loads(battle["result_json"] or "{}")
+            state = battle_data.get("state") or {}
+            player_eff = {"burn": 0, "poison": 0, "shield": 0.0, "stun": 0, **(state.get("player") or {})}
+            enemy_eff = {"burn": 0, "poison": 0, "stun": 0, **(state.get("enemy") or {})}
+            skill_cd = max(0, int(state.get("skill_cd") or 0))
+            player_hp, enemy_hp = int(battle["player_hp"]), int(battle["enemy_hp"])
+            mana, max_mana = int(battle["mana"]), int(battle["max_mana"])
+            pmax, emax = int(battle["player_max_hp"]), int(battle["enemy_max_hp"])
+            turn_no = int(battle["turn"])
+            class_id = str(p["class_id"])
+            _, attack, _, _ = self._stats_with_companion(con, p)
             logs: list[str] = []
+            status = "active"
+            reward: dict[str, int] = {}
             guarded = False
-            if action == "flee":
-                con.execute("UPDATE active_battles SET status='escaped' WHERE id=?", (battle_id,))
+            evasive = False
+
+            for effect, label in (("burn", "burn"), ("poison", "poison")):
+                stacks = int(player_eff.get(effect) or 0)
+                if stacks > 0:
+                    damage = 1 if effect == "poison" else 2
+                    damage = max(damage, int(pmax * (0.04 if effect == "poison" else 0.05)))
+                    player_hp = max(0, player_hp - damage)
+                    player_eff[effect] = stacks - 1
+                    logs.append(f"You suffer {damage} {label} damage.")
+            if player_hp <= 0:
+                status = "defeat"
+                logs.append("Your wounds overwhelm you. You were defeated.")
+            elif action == "flee":
+                status = "escaped"
                 logs.append("You retreated. No dungeon rewards were earned.")
             else:
                 if action == "attack":
+                    crit_chance = float(CLASS_CRIT.get(class_id, 0.08))
+                    crit = self.rng.random() < crit_chance
                     damage = max(1, int(attack * self.rng.uniform(0.85, 1.15)))
+                    if crit:
+                        damage = int(damage * 1.6)
                     enemy_hp = max(0, enemy_hp - damage)
-                    logs.append(f"You strike for {damage} damage.")
+                    logs.append(f"You strike for {damage} damage.{' CRITICAL HIT!' if crit else ''}")
                 elif action == "guard":
                     guarded = True
-                    logs.append("You brace for impact. The next hit is reduced.")
+                    player_eff["shield"] = max(float(player_eff.get("shield") or 0), 0.5)
+                    logs.append("You brace for impact. Incoming damage is reduced.")
+                elif action == "dodge":
+                    evasive = True
+                    logs.append("You prepare to evade the next attack.")
                 elif action == "skill":
+                    if skill_cd > 0:
+                        raise GameError(f"Your awakening skill recharges in {skill_cd} turn(s).")
                     if mana < SKILL_MANA_COST:
                         raise GameError(f"You need {SKILL_MANA_COST} mana to use your awakening skill.")
-                    class_data = CLASSES[p["class_id"]]
+                    class_data = CLASSES[class_id]
+                    crit = self.rng.random() < float(CLASS_CRIT.get(class_id, 0.08))
                     damage = max(
                         1, int(attack * float(class_data["multiplier"]) * self.rng.uniform(0.9, 1.1))
                     )
+                    if crit:
+                        damage = int(damage * 1.6)
                     enemy_hp = max(0, enemy_hp - damage)
                     mana -= SKILL_MANA_COST
-                    logs.append(f"{class_data['skill']} hits for {damage} damage.")
+                    skill_cd = SKILL_COOLDOWN_TURNS + 1
+                    logs.append(f"{class_data['skill']} hits for {damage} damage.{' CRITICAL HIT!' if crit else ''}")
+                    if class_id == "vanguard":
+                        enemy_eff["stun"] = max(int(enemy_eff.get("stun") or 0), 1)
+                        player_eff["shield"] = max(float(player_eff.get("shield") or 0), 0.5)
+                        logs.append("Aegis Break stuns the enemy and raises your guard.")
+                    elif class_id == "assassin":
+                        enemy_eff["poison"] = max(int(enemy_eff.get("poison") or 0), 3)
+                        logs.append("Shadowstep poisons the enemy for 3 turns.")
+                    else:
+                        enemy_eff["burn"] = max(int(enemy_eff.get("burn") or 0), 3)
+                        logs.append("Rift Lance burns the enemy for 3 turns.")
                     self._increment_quest(con, player_id, "use_skill", 1)
                 elif action == "potion":
                     item = con.execute(
@@ -681,7 +884,7 @@ class GameService:
                     ).fetchone()
                     if item is None or int(item["quantity"]) < 1:
                         raise GameError("You have no Mana Vial. Buy one with /shop.")
-                    restored = min(20, int(battle["max_mana"]) - mana)
+                    restored = min(20, max_mana - mana)
                     if restored <= 0:
                         raise GameError("Your mana is already full.")
                     con.execute(
@@ -691,21 +894,53 @@ class GameService:
                     mana += restored
                     logs.append(f"Mana Vial restores {restored} mana.")
 
-                if enemy_hp > 0:
-                    hit = max(1, int(int(battle["enemy_attack"]) * self.rng.uniform(0.8, 1.2)))
-                    if guarded:
-                        hit = max(1, hit // 3)
-                    player_hp = max(0, player_hp - hit)
-                    logs.append(f"{battle['enemy_name']} hits you for {hit} damage.")
+                for effect, label in (("burn", "burn"), ("poison", "poison")):
+                    stacks = int(enemy_eff.get(effect) or 0)
+                    if enemy_hp > 0 and stacks > 0:
+                        damage = max(2, int(emax * (0.04 if effect == "poison" else 0.05)))
+                        enemy_hp = max(0, enemy_hp - damage)
+                        enemy_eff[effect] = stacks - 1
+                        logs.append(f"{battle['enemy_name']} suffers {damage} {label} damage.")
 
-                status = "active"
-                reward: dict[str, int] = {}
+                enemy_stunned = int(enemy_eff.get("stun") or 0) > 0
+                if enemy_hp > 0 and enemy_stunned:
+                    enemy_eff["stun"] = int(enemy_eff.get("stun") or 0) - 1
+                    logs.append(f"{battle['enemy_name']} is stunned and cannot act.")
+                elif enemy_hp > 0:
+                    special = turn_no % ENEMY_SPECIAL_EVERY == 0
+                    hit = max(1, int(int(battle["enemy_attack"]) * self.rng.uniform(0.8, 1.2)))
+                    if special:
+                        hit = int(hit * 1.4)
+                    if evasive and self.rng.random() < min(0.85, 0.65 + float(CLASS_DODGE.get(class_id, 0.05))):
+                        logs.append(f"You dodge {battle['enemy_name']}'s attack completely.")
+                        hit = 0
+                    elif guarded or float(player_eff.get("shield") or 0) > 0:
+                        reduction = 0.66 if guarded else float(player_eff.get("shield") or 0)
+                        hit = max(1, int(hit * (1 - reduction)))
+                        player_eff["shield"] = 0.0
+                        logs.append(f"{battle['enemy_name']} hits you for {hit} damage through your guard.")
+                    else:
+                        logs.append(f"{battle['enemy_name']} hits you for {hit} damage.")
+                    player_hp = max(0, player_hp - hit)
+                    if special and player_hp > 0:
+                        effect = "poison" if battle["dungeon_id"] == "gate" else "burn"
+                        stacks = 2 if battle["dungeon_id"] != "abyss" else 3
+                        player_eff[effect] = max(int(player_eff.get(effect) or 0), stacks)
+                        logs.append(f"{battle['enemy_name']} uses a rift technique: you are {effect}ed for {stacks} turns.")
+
+                mana = min(max_mana, mana + 3)
+                if mana > int(battle["mana"]):
+                    logs.append("You recover 3 mana.")
+
                 if enemy_hp <= 0:
                     status = "victory"
                     d = DUNGEONS[battle["dungeon_id"]]
                     coins = int(d["coins"]) + int(p["level"]) * 4
                     xp = int(d["xp"]) + int(p["level"]) * 8
                     essence = int(d["essence"])
+                    if player_hp >= pmax:
+                        coins = int(coins * 1.25)
+                        logs.append("Flawless victory bonus: +25% coins.")
                     self._add_coins(con, player_id, coins)
                     self._add_essence(con, player_id, essence)
                     levels = self._award_xp(con, player_id, xp)
@@ -718,25 +953,36 @@ class GameService:
                 elif player_hp <= 0:
                     status = "defeat"
                     logs.append("You were defeated. Catch your breath and try again.")
-                next_turn = int(battle["turn"]) + 1
-                con.execute(
-                    """UPDATE active_battles SET enemy_hp=?,player_hp=?,mana=?,turn=?,status=?,result_json=?
-                       WHERE id=? AND status='active'""",
-                    (
-                        enemy_hp,
-                        player_hp,
-                        mana,
-                        next_turn,
-                        status,
-                        json.dumps({"log": logs, "reward": reward}),
-                        battle_id,
-                    ),
-                )
-            updated = con.execute("SELECT * FROM active_battles WHERE id=?", (battle_id,)).fetchone()
-            result = self._battle_dict(updated)
-            if action == "flee":
-                result["result"] = {"log": logs, "reward": {}}
-            return result
+
+            next_turn = turn_no + 1
+            state.update(
+                {
+                    "player": player_eff,
+                    "enemy": enemy_eff,
+                    "skill_cd": max(0, skill_cd - 1),
+                }
+            )
+            history = (battle_data.get("log") or [])[-20:]
+            combined = (history + logs)[-30:]
+            con.execute(
+                """UPDATE active_battles SET enemy_hp=?,player_hp=?,mana=?,turn=?,status=?,result_json=?
+                   WHERE id=? AND status='active'""",
+                (
+                    enemy_hp,
+                    player_hp,
+                    mana,
+                    next_turn,
+                    status,
+                    json.dumps({"log": combined, "reward": reward, "state": state}),
+                    battle_id,
+                ),
+            )
+            return self._with_player(
+                self._battle_dict(
+                    con.execute("SELECT * FROM active_battles WHERE id=?", (battle_id,)).fetchone()
+                ),
+                p,
+            )
 
     def _increment_quest(self, con, player_id: int, quest_id: str, amount: int) -> None:
         today = self._today()
@@ -806,13 +1052,48 @@ class GameService:
         return [{"id": key, **value} for key, value in ITEMS.items()]
 
     def leaderboard(self) -> list[dict]:
+        return self.leaderboards("level", limit=10)
+
+    def leaderboards(self, category: str = "level", limit: int = 10) -> list[dict]:
+        queries = {
+            "level": (
+                "SELECT display_name AS name, level AS value, xp AS detail FROM players "
+                "ORDER BY level DESC, xp DESC, coins DESC LIMIT ?",
+                "Lv {value} · {detail} XP",
+            ),
+            "xp": (
+                "SELECT display_name AS name, xp AS value, level AS detail FROM players "
+                "ORDER BY xp DESC, level DESC LIMIT ?",
+                "{value} XP · Lv {detail}",
+            ),
+            "coins": (
+                "SELECT display_name AS name, coins AS value, level AS detail FROM players "
+                "ORDER BY coins DESC, level DESC LIMIT ?",
+                "{value:,} coins · Lv {detail}",
+            ),
+            "arena": (
+                "SELECT p.display_name AS name, a.rating AS value, a.wins AS detail "
+                "FROM arena_ratings a JOIN players p ON p.telegram_id=a.player_id "
+                "ORDER BY a.rating DESC, a.wins DESC LIMIT ?",
+                "{value} rating · {detail} wins",
+            ),
+            "wins": (
+                "SELECT p.display_name AS name, a.wins AS value, a.rating AS detail "
+                "FROM arena_ratings a JOIN players p ON p.telegram_id=a.player_id "
+                "ORDER BY a.wins DESC, a.rating DESC LIMIT ?",
+                "{value} wins · {detail} rating",
+            ),
+            "guild": (
+                "SELECT name AS name, level AS value, xp AS detail FROM guilds "
+                "ORDER BY level DESC, xp DESC LIMIT ?",
+                "Lv {value} · {detail} guild XP",
+            ),
+        }
+        if category not in queries:
+            category = "level"
+        query, _ = queries[category]
         with self.db.reader() as con:
-            return [
-                dict(row)
-                for row in con.execute(
-                    "SELECT display_name,level,xp,coins,class_id FROM players ORDER BY level DESC,xp DESC,coins DESC LIMIT 10"
-                ).fetchall()
-            ]
+            return [dict(row) for row in con.execute(query, (limit,)).fetchall()]
 
     def create_guild(self, player_id: int, name: str) -> dict:
         name = " ".join(name.split())

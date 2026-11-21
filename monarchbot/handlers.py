@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
+import time
 from functools import wraps
 from html import escape
+from pathlib import Path
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
     Application,
@@ -15,7 +19,18 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from .catalog import CLASSES, COMPANION_EXTRACT_COST, COMPANIONS, DUNGEONS, ITEMS
+from .catalog import (
+    CLASS_CRIT,
+    CLASS_DODGE,
+    CLASSES,
+    COMPANION_EXTRACT_COST,
+    COMPANIONS,
+    DUNGEONS,
+    ENEMIES,
+    HUNT_ENERGY_COST,
+    ITEMS,
+    REGIONS,
+)
 from .config import Settings
 from .marketplace import MarketplaceService
 from .service import GameError, GameService
@@ -24,7 +39,7 @@ from .tournament import TournamentService
 
 logger = logging.getLogger(__name__)
 _CALL_FAILED = object()
-BOT_NAME = "Monarch: Rift Hunters"
+BOT_NAME = "H U N T E R S"
 BOT_SHORT_DESCRIPTION = (
     "Turn-based hunter RPG with dungeons, guilds, PvP, raids, tournaments, and a fair player market."
 )
@@ -32,9 +47,80 @@ BOT_DESCRIPTION = (
     "MONARCH is an original turn-based Telegram hunter RPG. Create your hunter, choose an awakening class, "
     "enter persistent dungeon battles, collect Echo companions, build a six-member team, join guilds, fight the "
     "world raid, challenge other hunters, compete in weekly tournaments, and trade supplies through a protected "
-    "player market. Progression, rewards, moderation, and economy changes are stored transactionally. "
+    "player market. Travel the rift, explore for supplies, forge a team, and climb the arena. "
+    "Progression, rewards, moderation, and economy changes are stored transactionally. "
     "Use /start to begin and /menu to open the game hub."
 )
+
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
+RULE = "━━━━━━━━━━━━━━━━━━"
+
+
+def _asset_path(name: str) -> Path | None:
+    path = ASSET_DIR / f"{name}.jpg"
+    return path if path.is_file() else None
+
+
+def _trim_caption(text: str, limit: int = 1000) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _combat_bars(p: dict) -> str:
+    hp = _bar(int(p["base_hp"]), max(1, int(p["base_hp"])))
+    return (
+        f"HP {p['base_hp']}  ·  ATK {p['attack']}  ·  MANA {p['max_mana']}\n"
+        f"XP {_bar(int(p['xp']), max(1, int(p['level']) * 100), 10)} {p['xp']}/{p['level'] * 100}"
+    )
+
+
+def _profile_caption(p: dict) -> str:
+    guild = html.escape(str(p["guild"]["name"])) if p["guild"] else "No guild"
+    return _trim_caption(
+        f"<b>╭─『 HUNTER FILE 』</b>\n"
+        f"<b>{html.escape(str(p['display_name']))}</b>\n"
+        f"{html.escape(str(p['rank']))} · Level <b>{p['level']}</b> · {html.escape(str(p['class_name']))}\n"
+        f"╰{RULE}\n\n"
+        f"❤️ HP {p['base_hp']} · ⚔️ ATK {p['attack']} · 🔷 Mana {p['max_mana']}\n"
+        f"{_combat_bars(p)}\n\n"
+        f"🏟️ Arena <b>{p.get('arena_rating', 1000)}</b> · {p.get('wins', 0)}W/{p.get('losses', 0)}L\n"
+        f"🪙 <b>{int(p['coins']):,}</b> coins · ✨ <b>{int(p['essence']):,}</b> essence\n"
+        f"⚡ Energy <b>{p['energy']}/{p['max_energy']}</b>\n"
+        f"🏰 Guild: <b>{guild}</b>\n"
+        f"🐺 Echo: <b>{html.escape(str(p['companion_name']))}</b>\n\n"
+        f"{RULE}\n"
+        f"<i>💡 /hunt · /battle · /daily · /menu</i>"
+    )
+
+
+async def _reply_visual(
+    update: Update,
+    image_key: str,
+    caption: str,
+    markup: InlineKeyboardMarkup | None = None,
+    details: str | None = None,
+    parse_mode: str | None = None,
+) -> None:
+    message = update.effective_message
+    if message is None:
+        return
+    path = _asset_path(image_key)
+    sent = False
+    if path is not None and len(caption) <= 1024:
+        try:
+            with path.open("rb") as photo:
+                await message.reply_photo(
+                    photo=photo,
+                    caption=_trim_caption(caption, 1000),
+                    parse_mode=parse_mode,
+                    reply_markup=markup,
+                )
+            sent = True
+        except (TelegramError, AttributeError):
+            logger.warning("Could not send %s visual", image_key, exc_info=True)
+    if not sent:
+        await message.reply_text(caption, reply_markup=markup, parse_mode=parse_mode)
+    if details:
+        await message.reply_text(details, parse_mode=parse_mode, disable_web_page_preview=True)
 
 
 def _uid(update: Update) -> int:
@@ -72,7 +158,7 @@ def _protected(function):
     @wraps(function)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
-            if function.__name__ not in {"start", "help_command", "maintenance"}:
+            if function.__name__ not in {"start", "help_command", "maintenance", "userid", "query_command"}:
                 maintenance_on = await asyncio.to_thread(
                     context.application.bot_data["game"].maintenance_enabled
                 )
@@ -102,39 +188,335 @@ def _player_name(update: Update) -> tuple[str | None, str]:
     return user.username, name
 
 
-def main_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def community_links(settings: Settings | None) -> list[InlineKeyboardButton]:
+    if settings is None:
+        return []
+    links = [
+        ("Channel", getattr(settings, "channel_link", "")),
+        ("Group", getattr(settings, "group_link", "")),
+        ("Support", getattr(settings, "support_link", "")),
+    ]
+    return [InlineKeyboardButton(label, url=url) for label, url in links if url]
+
+
+def main_menu(settings: Settings | None = None) -> InlineKeyboardMarkup:
+    rows = [
         [
-            [
-                InlineKeyboardButton("Profile", callback_data="m:profile"),
-                InlineKeyboardButton("Dungeons", callback_data="m:dungeons"),
-            ],
-            [
-                InlineKeyboardButton("Daily Reward", callback_data="m:daily"),
-                InlineKeyboardButton("Inventory", callback_data="m:inventory"),
-            ],
-            [
-                InlineKeyboardButton("Guild", callback_data="m:guild"),
-                InlineKeyboardButton("World Boss", callback_data="m:raid"),
-            ],
-            [
-                InlineKeyboardButton("Arena", callback_data="m:tournament"),
-                InlineKeyboardButton("Market", callback_data="m:market"),
-            ],
-            [InlineKeyboardButton("Codex", callback_data="m:codex")],
-            [
-                InlineKeyboardButton("Echo Companions", callback_data="m:companions"),
-                InlineKeyboardButton("About", callback_data="m:about"),
-            ],
-            [InlineKeyboardButton("Help", callback_data="m:help")],
-        ]
-    )
+            InlineKeyboardButton("Profile", callback_data="m:profile"),
+            InlineKeyboardButton("Dungeons", callback_data="m:dungeons"),
+        ],
+        [
+            InlineKeyboardButton("Daily Reward", callback_data="m:daily"),
+            InlineKeyboardButton("Inventory", callback_data="m:inventory"),
+        ],
+        [
+            InlineKeyboardButton("Guild", callback_data="m:guild"),
+            InlineKeyboardButton("World Boss", callback_data="m:raid"),
+        ],
+        [
+            InlineKeyboardButton("Arena", callback_data="m:tournament"),
+            InlineKeyboardButton("Market", callback_data="m:market"),
+        ],
+        [InlineKeyboardButton("Codex", callback_data="m:codex")],
+        [
+            InlineKeyboardButton("⚔️ Hunt", callback_data="m:hunt"),
+            InlineKeyboardButton("Explore", callback_data="m:explore"),
+        ],
+        [
+            InlineKeyboardButton("Echo Companions", callback_data="m:companions"),
+            InlineKeyboardButton("Travel", callback_data="m:travel"),
+        ],
+        [
+            InlineKeyboardButton("About", callback_data="m:about"),
+            InlineKeyboardButton("Help", callback_data="m:help"),
+        ],
+    ]
+    link_buttons = community_links(settings)
+    if link_buttons:
+        rows.append(link_buttons)
+    return InlineKeyboardMarkup(rows)
 
 
 def _bar(value: int, maximum: int, width: int = 12) -> str:
     maximum = max(1, maximum)
     filled = max(0, min(width, round(width * value / maximum)))
-    return "█" * filled + "░" * (width - filled)
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def _slug(value: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+
+
+def _enemy_image(name: str) -> str:
+    return f"enemy_{_slug(name)}"
+
+
+def _hunt_caption(preview: dict) -> str:
+    lines = [
+        f"🌍 {preview['dungeon_name'].upper()}",
+        "━━━━━━━━━━━━━━━━━━",
+        "",
+        f"A villain blocks your path in {preview['dungeon_name']}!",
+        f"👹 {preview['enemy_name']} (Level {preview['level']})",
+        f"❤️ HP {preview['enemy_hp']} · ⚔️ ATK {preview['enemy_attack']}",
+        f"⚡ Energy {preview['energy']} · You have {preview['player_energy']}",
+        "",
+        "Would you wanna fight or run?",
+    ]
+    if int(preview["player_energy"]) < int(preview["energy"]):
+        lines.extend(["", "⚠️ Not enough energy — claim /daily or use an energy shard."])
+    return "\n".join(lines)
+
+
+def _hunt_markup(preview: dict, owner_id: int) -> InlineKeyboardMarkup:
+    dungeon = preview["dungeon_id"]
+    index = preview["enemy_index"]
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🟢 Fight", callback_data=f"h:f:{owner_id}:{dungeon}:{index}"),
+                InlineKeyboardButton("🔴 Run Away", callback_data=f"h:x:{owner_id}:{dungeon}"),
+            ],
+            [InlineKeyboardButton("🔁 Find Another", callback_data=f"h:r:{owner_id}:{dungeon}")],
+            [
+                InlineKeyboardButton("🗺️ Travel", callback_data="m:travel"),
+                InlineKeyboardButton("👹 World Boss", callback_data="m:raid"),
+            ],
+        ]
+    )
+
+
+async def _send_hunt_preview(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    preview: dict,
+    owner_id: int,
+    *,
+    via_callback: bool = False,
+) -> None:
+    caption = _hunt_caption(preview)
+    markup = _hunt_markup(preview, owner_id)
+    image_key = _enemy_image(preview["enemy_name"])
+    path = _asset_path(image_key)
+    if via_callback:
+        query = update.callback_query
+        try:
+            if query.message:
+                await query.message.delete()
+        except TelegramError:
+            logger.info("Could not delete old hunt preview", exc_info=True)
+        try:
+            chat_id = query.message.chat_id if query.message else None
+            if chat_id is None:
+                return
+            if path is not None:
+                with path.open("rb") as photo:
+                    await context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo,
+                        caption=_trim_caption(caption, 1000),
+                        reply_markup=markup,
+                    )
+            else:
+                await context.bot.send_message(chat_id, caption, reply_markup=markup)
+        except TelegramError:
+            logger.warning("Could not send hunt preview", exc_info=True)
+        return
+    await _reply_visual(update, image_key, caption, markup)
+
+
+@_protected
+async def hunt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    dungeon_id = None
+    if context.args:
+        dungeon_id = context.args[0].lower()
+        if dungeon_id not in DUNGEONS:
+            raise GameError("Usage: /hunt [gate|rift|abyss].")
+    preview = await _call(
+        update, context.application.bot_data["game"].hunt_preview, _uid(update), dungeon_id
+    )
+    if preview:
+        await _send_hunt_preview(update, context, preview, _uid(update))
+
+
+async def hunt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    parts = query.data.split(":")
+    try:
+        action = parts[1]
+        owner_id = int(parts[2])
+    except (IndexError, ValueError):
+        await query.answer("That hunt expired.", show_alert=True)
+        return
+    if owner_id != query.from_user.id:
+        await query.answer("This hunt belongs to another hunter.", show_alert=True)
+        return
+    game = context.application.bot_data["game"]
+    if action == "f":
+        try:
+            dungeon_id, index = parts[3], int(parts[4])
+        except (IndexError, ValueError):
+            await query.answer("That hunt expired.", show_alert=True)
+            return
+        try:
+            cost = int(HUNT_ENERGY_COST[dungeon_id])
+            result = await asyncio.to_thread(
+                game.start_battle, owner_id, dungeon_id, index, cost
+            )
+        except GameError as exc:
+            await query.answer(str(exc), show_alert=True)
+            return
+        except Exception:
+            logger.exception("Hunt battle failed; update=%s", update.update_id)
+            await query.answer("Battle could not start. Try /hunt again.", show_alert=True)
+            return
+        try:
+            await query.answer()
+        except BadRequest:
+            pass
+        await _show_battle(update, result, edit=True)
+        return
+    if action == "r":
+        dungeon_id = parts[3] if len(parts) > 3 and parts[3] in DUNGEONS else None
+        try:
+            preview = await asyncio.to_thread(game.hunt_preview, owner_id, dungeon_id)
+        except GameError as exc:
+            await query.answer(str(exc), show_alert=True)
+            return
+        except Exception:
+            logger.exception("Hunt reroll failed; update=%s", update.update_id)
+            await query.answer("Could not find a new target. Try /hunt again.", show_alert=True)
+            return
+        try:
+            await query.answer()
+        except BadRequest:
+            pass
+        await _send_hunt_preview(update, context, preview, owner_id, via_callback=True)
+        return
+    if action == "x":
+        dungeon_id = parts[3] if len(parts) > 3 and parts[3] in DUNGEONS else "gate"
+        try:
+            await query.answer("You slip away without a fight.")
+        except BadRequest:
+            pass
+        markup = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🎲 Hunt Again", callback_data=f"h:r:{owner_id}:{dungeon_id}")],
+                [InlineKeyboardButton("🗺️ Travel", callback_data="m:travel"),
+                 InlineKeyboardButton("⬅️ Menu", callback_data="m:main")],
+            ]
+        )
+        text = (
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🏃 YOU SLIPPED AWAY\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "You vanish before the creature notices.\n"
+            "No energy was spent.\n\n"
+            "💡 Hunt again when you are ready."
+        )
+        try:
+            if query.message and query.message.photo:
+                await query.edit_message_caption(
+                    caption=_trim_caption(text, 1000), reply_markup=markup
+                )
+            elif query.message:
+                await query.edit_message_text(text, reply_markup=markup)
+        except BadRequest:
+            logger.info("Could not edit hunt flee screen", exc_info=True)
+        return
+    await query.answer("That hunt expired.", show_alert=True)
+
+
+@_protected
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
+    if not p:
+        return
+    await update.effective_message.reply_text(
+        f"BALANCE — {p['display_name']}\n"
+        f"🪙 Coins: {int(p['coins']):,}\n"
+        f"✨ Essence: {int(p['essence']):,}\n"
+        f"⚡ Energy: {p['energy']}/{p['max_energy']}\n\n"
+        "Earn with /daily, /quests, /explore, /hunt and /battle."
+    )
+
+
+@_protected
+async def stamina_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
+    if not p:
+        return
+    missing = max(0, int(p["max_energy"]) - int(p["energy"]))
+    await update.effective_message.reply_text(
+        f"⚡ ENERGY — {p['energy']}/{p['max_energy']}\n"
+        f"Missing: {missing}\n\n"
+        "Restore with /daily, /weekly, or /use energy_shard. "
+        "Hunts cost 5–14 energy; dungeons cost 10–28."
+    )
+
+
+@_protected
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings = context.application.bot_data["settings"]
+    links = "\n".join(
+        f"• {label}: {url}"
+        for label, url in (
+            ("Channel", getattr(settings, "channel_link", "")),
+            ("Group", getattr(settings, "group_link", "")),
+            ("Support", getattr(settings, "support_link", "")),
+        )
+        if url
+    )
+    await update.effective_message.reply_text(
+        "SETTINGS & LINKS\n"
+        f"{links or 'No community links configured.'}\n\n"
+        "Use /help for commands, /links for buttons, /rules for community rules."
+    )
+
+
+@_protected
+async def flee(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    battle = await _call(
+        update,
+        context.application.bot_data["game"].battle_status,
+        _uid(update),
+        preserve_failure=True,
+    )
+    if battle is _CALL_FAILED or not battle:
+        if battle is not _CALL_FAILED:
+            await update.effective_message.reply_text(
+                "You have no active battle. Hunt with /hunt or enter a dungeon with /battle gate."
+            )
+        return
+    result = await _call(
+        update,
+        context.application.bot_data["game"].battle_action,
+        _uid(update),
+        battle["id"],
+        int(battle["turn"]),
+        "flee",
+    )
+    if result:
+        await _show_battle(update, result)
+
+
+@_protected
+async def npc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    dungeon_id = context.args[0].lower() if context.args else "gate"
+    if dungeon_id not in DUNGEONS:
+        raise GameError("Usage: /npc [gate|rift|abyss].")
+    dungeon = DUNGEONS[dungeon_id]
+    lines = [f"🗺️ {dungeon['name'].upper()} — TIER {dungeon['tier']}", ""]
+    for enemy in ENEMIES[dungeon_id]:
+        lines.append(f"👹 {enemy['name']}")
+    lines.extend(
+        [
+            "",
+            f"Hunt cost: {HUNT_ENERGY_COST[dungeon_id]} energy",
+            "Use /hunt to preview a target, then tap Battle or Flee.",
+        ]
+    )
+    await _reply_visual(update, f"battle_{dungeon_id}", "\n".join(lines))
 
 
 def _profile_text(profile: dict) -> str:
@@ -174,43 +556,121 @@ def _inventory_text(rows: list[dict]) -> str:
 
 def _battle_markup(battle: dict) -> InlineKeyboardMarkup:
     bid, turn = battle["id"], battle["turn"]
+    state = (battle.get("result") or {}).get("state") or {}
+    cooldown = int(state.get("skill_cd") or 0)
+    skill_label = f"✨ Skill ({cooldown})" if cooldown else "✨ Awakening"
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Quick Attack", callback_data=f"b:{bid}:{turn}:attack"),
-                InlineKeyboardButton("Guard", callback_data=f"b:{bid}:{turn}:guard"),
+                InlineKeyboardButton("⚔️ Strike", callback_data=f"b:{bid}:{turn}:attack"),
+                InlineKeyboardButton("🛡️ Guard", callback_data=f"b:{bid}:{turn}:guard"),
             ],
             [
-                InlineKeyboardButton("Awakening Skill", callback_data=f"b:{bid}:{turn}:skill"),
-                InlineKeyboardButton("Healing Tonic", callback_data=f"b:{bid}:{turn}:potion"),
+                InlineKeyboardButton("💨 Dodge", callback_data=f"b:{bid}:{turn}:dodge"),
+                InlineKeyboardButton(skill_label, callback_data=f"b:{bid}:{turn}:skill"),
             ],
             [
-                InlineKeyboardButton("Mana Vial", callback_data=f"b:{bid}:{turn}:mana"),
-                InlineKeyboardButton("Retreat", callback_data=f"b:{bid}:{turn}:flee"),
+                InlineKeyboardButton("🧪 Tonic", callback_data=f"b:{bid}:{turn}:potion"),
+                InlineKeyboardButton("🔷 Mana Vial", callback_data=f"b:{bid}:{turn}:mana"),
             ],
+            [InlineKeyboardButton("🏃 Run", callback_data=f"b:{bid}:{turn}:flee")],
         ]
     )
 
 
 def _battle_text(battle: dict) -> str:
     dungeon = DUNGEONS[battle["dungeon_id"]]
-    lines = [
-        f"{dungeon['name'].upper()} · TURN {battle['turn']}",
-        "",
-        f"Your HP  {_bar(int(battle['player_hp']), int(battle['player_max_hp']))}  {battle['player_hp']}/{battle['player_max_hp']}",
-        f"Your Mana {_bar(int(battle['mana']), int(battle['max_mana']))}  {battle['mana']}/{battle['max_mana']}",
-        "",
-        f"{battle['enemy_name']} HP  {_bar(int(battle['enemy_hp']), int(battle['enemy_max_hp']))}  {battle['enemy_hp']}/{battle['enemy_max_hp']}",
-    ]
     result = battle.get("result") or {}
+    status = battle["status"]
+    name = str(battle.get("player_name") or "HUNTER")
+    level = int(battle.get("player_level") or 0)
+    if status == "victory":
+        reward = result.get("reward") or {}
+        lines = [
+            "━━━━━━━━━━━━━━━━━━",
+            "🌟 VICTORY!",
+            "━━━━━━━━━━━━━━━━━━",
+            "",
+            f"⭐ +{int(reward.get('xp', 0)):,} XP",
+            f"🪙 +{int(reward.get('coins', 0)):,} coins",
+            f"✨ +{int(reward.get('essence', 0)):,} essence",
+        ]
+        if reward.get("levels"):
+            lines.append(f"🆙 Level up ×{int(reward['levels'])}!")
+        log = result.get("log") or []
+        if log:
+            lines.extend(["", f"> {log[-1]}"])
+        lines.extend(["", "💡 Use /hunt to fight again or /battle to enter a dungeon."])
+        return "\n".join(lines)
+    if status == "defeat":
+        return (
+            "━━━━━━━━━━━━━━━━━━\n"
+            "💀 DEFEAT\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            f"{battle.get('enemy_name', 'The enemy')} overwhelmed you.\n"
+            "No rewards were earned.\n\n"
+            "💡 Use /daily for energy, then /hunt to try again."
+        )
+    if status == "escaped":
+        return (
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🏃 ESCAPED\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "You retreated safely. No rewards were earned.\n\n"
+            "💡 Use /hunt to find a new target."
+        )
+    if status == "expired":
+        return (
+            "━━━━━━━━━━━━━━━━━━\n"
+            "⌛ BATTLE EXPIRED\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "You took too long. The enemy slipped away.\n\n"
+            "💡 Use /hunt or /battle to start again."
+        )
+    state = result.get("state") or {}
     log = result.get("log") or []
+    lines = [
+        f"🌸 {dungeon['name'].upper()} · TURN {battle['turn']}",
+        "━━━━━━━━━━━━━━━━━━",
+    ]
     if log:
-        lines.extend(["", "LAST TURN"])
-        lines.extend(log[-4:])
-    if battle["status"] != "active":
-        lines.extend(["", f"Battle ended: {battle['status'].upper()}."])
-    else:
-        lines.extend(["", "Choose your action."])
+        lines.append(f"> {log[-1]}")
+        if len(log) > 1:
+            lines.append(f"> {log[-2]}")
+        lines.append("━━━━━━━━━━━━━━━━━━")
+    lines.extend(
+        [
+            "",
+            f"🗡️ {name}" + (f" · Lv {level}" if level else ""),
+            f"❤️ HP {battle['player_hp']}/{battle['player_max_hp']}",
+            _bar(int(battle["player_hp"]), int(battle["player_max_hp"]), 10),
+            f"🔷 Mana {battle['mana']}/{battle['max_mana']}",
+            "",
+            f"👹 {battle['enemy_name']}",
+            f"❤️ HP {battle['enemy_hp']}/{battle['enemy_max_hp']}",
+            _bar(int(battle["enemy_hp"]), int(battle["enemy_max_hp"]), 10),
+        ]
+    )
+    effects = []
+    for side, label in (("player", "You"), ("enemy", battle["enemy_name"])):
+        side_state = state.get(side) or {}
+        tags = []
+        for effect in ("burn", "poison"):
+            turns = int(side_state.get(effect) or 0)
+            if turns:
+                tags.append(f"{effect.title()} {turns}")
+        if int(side_state.get("stun") or 0):
+            tags.append("Stunned")
+        if float(side_state.get("shield") or 0):
+            tags.append("Shielded")
+        if tags:
+            effects.append(f"{label}: " + ", ".join(tags))
+    if effects:
+        lines.extend(["", "✦ EFFECTS", *effects])
+    cooldown = int(state.get("skill_cd") or 0)
+    if cooldown:
+        lines.append(f"✦ Awakening recharge: {cooldown} turn(s)")
+    lines.extend(["", "✦ Choose your action."])
     return "\n".join(lines)
 
 
@@ -218,9 +678,29 @@ async def _show_battle(update: Update, battle: dict, *, edit: bool = False) -> N
     markup = _battle_markup(battle) if battle["status"] == "active" else None
     text = _battle_text(battle)
     if edit and update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=markup)
-    elif update.effective_message:
-        await update.effective_message.reply_text(text, reply_markup=markup)
+        query = update.callback_query
+        try:
+            if query.message and query.message.photo:
+                await query.edit_message_caption(caption=_trim_caption(text, 1000), reply_markup=markup)
+            else:
+                await query.edit_message_text(text, reply_markup=markup)
+        except BadRequest:
+            logger.info("Could not edit battle screen; leaving the previous view in place")
+        return
+    message = update.effective_message
+    if message is None:
+        return
+    path = _asset_path(_enemy_image(battle["enemy_name"])) or _asset_path(
+        f"battle_{battle['dungeon_id']}"
+    )
+    if path is not None and len(text) <= 1024:
+        try:
+            with path.open("rb") as photo:
+                await message.reply_photo(photo=photo, caption=text, reply_markup=markup)
+            return
+        except TelegramError:
+            logger.warning("Could not send battle visual", exc_info=True)
+    await message.reply_text(text, reply_markup=markup)
 
 
 @_protected
@@ -234,19 +714,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if result:
         _, created = result
         greeting = (
-            "WELCOME TO MONARCH, HUNTER\n\n"
-            "Your hunter file is ready. Two Healing Tonics and an Ash Hound are yours.\n\n"
-            "YOUR FIRST HUNT\n"
-            "1. Choose an awakening with /class vanguard, /class assassin, or /class arcanist.\n"
-            "2. Enter your first dungeon with /battle gate.\n"
-            "3. Claim your daily supplies with /daily.\n\n"
-            "When you are ready, explore /guild, /raid, /market, and /arena.\n"
-            "Use /menu for the game hub, /codex for guidance, and /help for commands."
+            "╭─『 WELCOME TO MONARCH 』\n"
+            "Your hunter file is ready.\n"
+            f"╰{RULE}\n\n"
+            "🎁 Starter kit\n"
+            "• 2 × Healing Tonic\n"
+            "• Ash Hound echo\n\n"
+            "✦ FIRST STEPS\n"
+            "1️⃣ /class vanguard · assassin · arcanist\n"
+            "2️⃣ /hunt — preview an enemy, then Fight or Run\n"
+            "   Or enter a dungeon with /battle gate.\n"
+            "3️⃣ /daily — claim supplies and energy\n\n"
+            f"{RULE}\n"
+            "💡 /menu · /codex · /help"
             if created
-            else "WELCOME BACK, HUNTER\n\nYour hunter file is ready. Continue your journey from /menu."
+            else "╭─『 WELCOME BACK 』\nYour hunter file is ready.\n"
+            f"╰{RULE}\n\n"
+            "💡 /hunt to fight · /daily to claim\n"
+            f"{RULE}\n"
+            "Use /menu for the game hub."
         )
-        await update.effective_message.reply_text(
-            f"MONARCH\n\n{greeting}\nUse /menu to open the game hub.", reply_markup=main_menu()
+        await _reply_visual(
+            update,
+            "announcement",
+            f"<b>MONARCH</b>\n\n{greeting}",
+            markup=main_menu(context.application.bot_data["settings"]),
         )
 
 
@@ -255,12 +747,21 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     await update.effective_message.reply_text(
         "MONARCH — HUNTER COMMANDS\n"
         "/start — create your hunter file\n/about — learn what Monarch is\n/menu — open the interactive game hub\n/profile — stats and awakening class\n"
-        "/class [vanguard|assassin|arcanist] — choose your awakening once\n"
+        "/userid — show your user ID and current chat ID\n/query <message> — send a question or bug report to the admin team\n"
+        "/class [vanguard|assassin|arcanist] — awaken or respec (1 free, another at Lv 20)\n"
         "/battle [gate|rift|abyss] — enter a turn-based dungeon\n/battle_status — recover your active battle screen\n"
+        "/travel — view regions and unlock levels\n/explore — spend energy to find coins, essence, or items\n"
+        "/stats [name] — combat stats or a class/companion lookup\n/data <name> — search classes, dungeons, items, companions\n"
+        "/nickname <name> — change your hunter name\n/bag — open your inventory\n/top — leaderboard alias\n"
+        "/myteam — manage your team\n/mycharacters — view echo companions\n/links — channel, group, and support links\n"
+        "/ping — check bot latency\n/ask <question> — ask the assistant about commands\n/rules — community rules\n"
+        "/achievements — track milestone unlocks\n"
+        "/hunt [gate|rift|abyss] — preview an enemy with a picture, then Battle or Flee\n"
+        "/npc [gate|rift|abyss] — list enemies in a region\n/flee — escape your active battle\n"
         "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
         "/daily_status — check today's claim and streak\n/weekly — claim a larger weekly reward\n/give <player_id> <amount> — send coins to another hunter\n/economy_history [limit] — view your recent economy events\n/codex [classes|dungeons|items|companions] — browse game content\n"
         "/shop — view items\n/buy <item_id> [qty] — buy items\n/inventory — view items\n/use energy_shard — restore energy\n"
-        "/leaderboard — top hunters\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n/guild_promote <id>\n/guild_demote <id>\n/guild_kick <id>\n/guild_rename <name>\n"
+        "/leaderboard [level|xp|coins|arena|wins|guild] — top hunters and guilds\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n/guild_promote <id>\n/guild_demote <id>\n/guild_kick <id>\n/guild_rename <name>\n"
         "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
         "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
         "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
@@ -274,44 +775,419 @@ async def about_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 @_protected
-async def menu(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def userid(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    lines = ["YOUR TELEGRAM IDS"]
+    if user is not None:
+        handle = f" (@{user.username})" if user.username else ""
+        name = " ".join(filter(None, [user.first_name, user.last_name])) or "Unknown"
+        lines.append(f"User ID: {user.id}{handle}")
+        lines.append(f"Name: {name}")
+    if chat is not None:
+        title = f" · {chat.title}" if chat.title else ""
+        lines.append(f"Chat ID: {chat.id} ({chat.type}{title})")
+    if update.effective_message is not None:
+        await update.effective_message.reply_text("\n".join(lines))
+
+
+@_protected
+async def query_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.application.bot_data["settings"]
+    args = list(context.args or [])
+    user = update.effective_user
+    chat = update.effective_chat
+    if not args:
+        await update.effective_message.reply_text(
+            "SEND A QUERY\nUsage: /query <your question or report>\n\n"
+            "Example: /query my dungeon battle is stuck on turn 3\n\n"
+            "Your report is sent to the admin team with your user ID and chat ID."
+        )
+        return
+    text = " ".join(args).strip()
+    if len(text) < 3:
+        await update.effective_message.reply_text("Please add a little more detail so the team can help.")
+        return
+    name = "Unknown"
+    handle = "N/A"
+    if user is not None:
+        name = " ".join(filter(None, [user.first_name, user.last_name])) or (user.username or "Unknown")
+        handle = f"@{user.username}" if user.username else "N/A"
+    report = (
+        "<b>NEW QUERY</b>\n\n"
+        f"<b>From:</b> {html.escape(name)} ({html.escape(handle)})\n"
+        f"<b>User ID:</b> <code>{user.id if user else 0}</code>\n"
+        f"<b>Chat ID:</b> <code>{chat.id if chat else 0}</code>\n\n"
+        f"<b>Message:</b>\n{html.escape(text)}"
+    )
+    delivered = False
+    if settings.query_group_id is not None:
+        try:
+            await context.bot.send_message(
+                chat_id=settings.query_group_id,
+                text=report,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            delivered = True
+        except TelegramError:
+            logger.exception("Could not deliver query to group %s", settings.query_group_id)
+    if not delivered:
+        for admin_id in sorted(settings.admin_ids | settings.owner_ids):
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=report, parse_mode=ParseMode.HTML)
+                delivered = True
+            except TelegramError:
+                logger.warning("Could not deliver query to admin %s", admin_id)
+    link = (
+        InlineKeyboardMarkup([[InlineKeyboardButton("Open Support Group", url=settings.support_link)]])
+        if settings.support_link
+        else None
+    )
+    if delivered:
+        message = "Your query has been sent to the admin team. Keep this chat open for a reply."
+    else:
+        message = (
+            "Your query could not be delivered right now. Please open the support group below."
+        )
+    await update.effective_message.reply_text(message, reply_markup=link)
+
+
+@_protected
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
-        "MONARCH HUNTER HUB\nChoose a destination.", reply_markup=main_menu()
+        "MONARCH HUNTER HUB\nChoose a destination.", reply_markup=main_menu(context.application.bot_data["settings"])
     )
 
 
 @_protected
-async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def nickname_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await update.effective_message.reply_text("Usage: /nickname <new name>")
+        return
+    result = await _call(update, context.application.bot_data["game"].nickname, _uid(update), " ".join(context.args))
+    if result:
+        await update.effective_message.reply_text(f"Your hunter is now known as {result}.")
+
+
+@_protected
+async def explore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = await _call(update, context.application.bot_data["game"].explore, _uid(update))
+    if not result:
+        return
+    if result["outcome"] == "coins":
+        found = f"You found {result['coins']} coins."
+    elif result["outcome"] == "essence":
+        found = f"You found {result['essence']} rift essence."
+    elif result["outcome"] == "item":
+        found = f"You found a {result['item']}."
+    else:
+        found = f"Rare find! {result['coins']} coins and {result['essence']} rift essence."
+    level_text = f"\n🆙 Level up ×{result['levels']}!" if result["levels"] else ""
+    await _reply_visual(
+        update,
+        "explore",
+        f"🌍 EXPLORATION COMPLETE\n{RULE}\n\n"
+        f"{found}\n⭐ +{result['xp']} XP{level_text}\n"
+        f"⚡ Energy {result['energy']}\n\n"
+        f"{RULE}\n💡 Use /explore to search again.",
+    )
+
+
+def _lookup_entry(query: str):
+    needle = query.strip().lower()
+    for group, entries in (("Class", CLASSES), ("Companion", COMPANIONS), ("Dungeon", DUNGEONS), ("Item", ITEMS), ("Region", REGIONS)):
+        for key, data in entries.items():
+            if needle in (key.lower(), str(data.get("name", "")).lower()):
+                return group, key, data
+    return None
+
+
+@_protected
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.args:
+        found = _lookup_entry(" ".join(context.args))
+        if found is None:
+            await update.effective_message.reply_text(
+                "No match. Try /stats vanguard, /stats assassin, /stats arcanist, or a companion name."
+            )
+            return
+        group, key, data = found
+        lines = [f"{str(data.get('name', key)).upper()} · {group}"]
+        for field in ("rarity", "hp", "attack", "mana", "skill", "multiplier", "description", "energy", "enemy_hp", "enemy_attack", "xp", "coins", "essence", "level", "price", "effect", "amount"):
+            if field in data:
+                lines.append(f"{field.replace('_', ' ').title()}: {data[field]}")
+        await update.effective_message.reply_text("\n".join(lines))
+        return
     p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
-    if p:
+    if not p:
+        return
+    crit = float(CLASS_CRIT.get(p["class_id"], 0.08))
+    dodge = float(CLASS_DODGE.get(p["class_id"], 0.05))
+    await update.effective_message.reply_text(
+        f"COMBAT STATS — {p['display_name']}\n"
+        f"Class: {p['class_name']} · Rank: {p['rank']} (Level {p['level']})\n"
+        f"HP: {p['base_hp']} · Attack: {p['attack']} · Mana: {p['max_mana']}\n"
+        f"Crit chance: {crit * 100:.0f}% · Dodge chance: {dodge * 100:.0f}%\n"
+        f"Echo ally: {p['companion_name']}\n\n"
+        "Use /stats <class or companion> for details. Use /data <name> to search the codex."
+    )
+
+
+@_protected
+async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
+    if not p:
+        return
+    companions = await _call(update, context.application.bot_data["game"].companions, _uid(update)) or []
+    milestones = [
+        ("First awakening", bool(p.get("class_locked"))),
+        ("Reach level 10", int(p["level"]) >= 10),
+        ("Reach level 20", int(p["level"]) >= 20),
+        ("Reach level 30", int(p["level"]) >= 30),
+        ("Hold 1,000 coins", int(p["coins"]) >= 1000),
+        ("Hold 10,000 coins", int(p["coins"]) >= 10000),
+        ("Join a guild", bool(p.get("guild"))),
+        ("Win 5 arena battles", int(p.get("wins", 0)) >= 5),
+        ("Win 20 arena battles", int(p.get("wins", 0)) >= 20),
+        ("Collect 3 Echo companions", len(companions) >= 3),
+        ("Own every Echo companion", len(companions) >= len(COMPANIONS)),
+    ]
+    lines = [f"ACHIEVEMENTS — {sum(1 for _, done in milestones if done)}/{len(milestones)} unlocked", ""]
+    lines.extend(f"{'✅' if done else '🔒'} {name}" for name, done in milestones)
+    await _reply_visual(update, "achievements", "\n".join(lines))
+
+
+@_protected
+async def data_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
         await update.effective_message.reply_text(
-            _profile_text(p),
-            parse_mode="HTML",
-            reply_markup=main_menu(),
+            "DATA CODEX\nSearch anything with /data <name>.\n\n"
+            f"Classes: {len(CLASSES)} · Dungeons: {len(DUNGEONS)} · Items: {len(ITEMS)} · "
+            f"Companions: {len(COMPANIONS)} · Regions: {len(REGIONS)}\n\n"
+            "Examples: /data rift, /data arcanist, /data ash hound, /data healing tonic"        )
+        return
+    needle = " ".join(context.args).strip().lower()
+    matches = []
+    for group, entries in (("Class", CLASSES), ("Companion", COMPANIONS), ("Dungeon", DUNGEONS), ("Item", ITEMS), ("Region", REGIONS)):
+        for key, data in entries.items():
+            haystack = f"{key} {data.get('name', '')} {data.get('description', '')}".lower()
+            if needle in haystack:
+                matches.append(f"{group}: {data.get('name', key)} (/stats {data.get('name', key)})")
+    if not matches:
+        await update.effective_message.reply_text("No codex entry matched that search.")
+        return
+    await update.effective_message.reply_text("DATA RESULTS\n" + "\n".join(matches[:15]))
+
+
+@_protected
+async def travel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
+    if not p:
+        return
+    lines = [f"🗺️ REGIONS OF THE RIFT · Lv {p['level']}", RULE, ""]
+    for region in REGIONS.values():
+        level = int(region["level"])
+        unlocked = int(p["level"]) >= level
+        dungeon = DUNGEONS[str(region["dungeon"])]
+        lines.append(
+            f"{'✅' if unlocked else '🔒'} {region['name']} · Lv {level}\n"
+            f"   {region['description']}\n"
+            f"   ⚡ {dungeon['energy']} · "
+            f"{'→ /hunt ' + str(region['dungeon']) + ' or /battle ' + str(region['dungeon']) if unlocked else 'Reach level ' + str(level) + ' to unlock.'}"
         )
+    lines.extend(["", RULE, "💡 /explore for supplies · /hunt to preview a target"])
+    await _reply_visual(update, "travel", "\n".join(lines))
+
+
+@_protected
+async def links_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.application.bot_data["settings"]
+    lines = ["MONARCH LINKS", ""]
+    if settings.channel_link:
+        lines.append(f"Channel: {settings.channel_link}")
+    if settings.group_link:
+        lines.append(f"Group: {settings.group_link}")
+    if settings.support_link:
+        lines.append(f"Support: {settings.support_link}")
+    if len(lines) == 2:
+        lines.append("No community links are configured yet.")
+    await update.effective_message.reply_text(
+        "\n".join(lines), reply_markup=InlineKeyboardMarkup([community_links(settings)]) if community_links(settings) else None
+    )
+
+
+@_protected
+async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    started = time.perf_counter()
+    await context.bot.get_me()
+    elapsed = (time.perf_counter() - started) * 1000
+    await update.effective_message.reply_text(f"Pong! Telegram latency: {elapsed:.0f} ms")
+
+
+ASK_TOPICS = {
+    "battle": "/battle gate, /battle rift, or /battle abyss. Use /battle_status to resume a fight.",
+    "fight": "/battle gate starts a turn-based dungeon fight. /hunt previews a wild enemy first.",
+    "hunt": "/hunt [gate|rift|abyss] shows an enemy with its picture, then Battle or Flee.",
+    "flee": "/flee escapes your active battle. In a hunt preview, tap Flee to leave without spending energy.",
+    "escape": "/escape is an alias for /flee.",
+    "npc": "/npc [gate|rift|abyss] lists enemies in a region.",
+    "team": "/team manages your six-member team. /myteam is an alias.",
+    "daily": "/daily claims your daily reward. Check /daily_status for your streak.",
+    "shop": "/shop shows supplies. Buy with /buy <item_id> <qty>.",
+    "market": "/market browses player listings. /market_list sells your items.",
+    "trade": "Player trading uses the protected market: /market_list and /market_buy.",
+    "guild": "/guild shows guild tools. Create with /guild_create, join with /guild_join.",
+    "raid": "/raid shows the world boss. Attack once per hour with /raid_attack.",
+    "quest": "/quests lists daily objectives. Claim with /quest_claim <id>.",
+    "class": "/class vanguard, /class assassin, or /class arcanist. Choose once.",
+    "profile": "/profile shows your stats. /stats shows combat numbers.",
+    "travel": "/travel lists regions and unlock levels. Explore with /explore.",
+    "explore": "/explore costs energy and can find coins, essence, or items.",
+    "nickname": "/nickname <name> changes your hunter name.",
+    "companion": "/companions shows echo allies. /extract summons one.",
+    "tournament": "/tournament shows weekly arena standings. /tournament_join enters.",
+    "link": "Use /links for the official channel, group, and support group.",
+    "query": "/query <message> sends a report to the admin team.",
+    "userid": "/userid shows your Telegram user ID and chat ID.",
+}
+
+
+@_protected
+async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    question = " ".join(context.args or []).strip().lower()
+    if not question:
+        await update.effective_message.reply_text(
+            "ASK XANDER\nAsk about any command, e.g. /ask how do I battle?\n"
+            "Try: battle, team, daily, shop, market, guild, raid, quest, class, travel, links."
+        )
+        return
+    answers = [answer for key, answer in ASK_TOPICS.items() if key in question]
+    if not answers:
+        await update.effective_message.reply_text(
+            "I am not sure yet. Try /help for every command, or ask about battle, team, daily, market, guild, raid, travel, or links."
+        )
+        return
+    await update.effective_message.reply_text("XANDER SAYS\n\n" + "\n\n".join(dict.fromkeys(answers[:4])))
+
+
+@_protected
+async def rules_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.effective_message.reply_text(
+        "MONARCH RULES\n"
+        "• Respect every hunter. No harassment, spam, or scams.\n"
+        "• No exploits, bots, or multi-accounting.\n"
+        "• Market and duel abuse is punished.\n"
+        "• Report bugs with /query so the team can fix them.\n"
+        "• Admin decisions are final."
+    )
+
+
+async def _send_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = _uid(update)
+    p = await _call(update, context.application.bot_data["game"].profile, user_id)
+    if not p:
+        return
+    caption = _profile_caption(p)
+    settings: Settings = context.application.bot_data["settings"]
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Travel", callback_data="m:travel"),
+                InlineKeyboardButton("Battle", callback_data="m:dungeons"),
+            ],
+            [InlineKeyboardButton("Inventory", callback_data="m:inventory"), InlineKeyboardButton("Guild", callback_data="m:guild")],
+            *([[InlineKeyboardButton(label, url=url)] for label, url in (("Channel", settings.channel_link), ("Group", settings.group_link), ("Support", settings.support_link)) if url] if community_links(settings) else []),
+            [InlineKeyboardButton("Back to hub", callback_data="m:menu")],
+        ]
+    )
+    message = update.effective_message
+    if message is None:
+        return
+    photo: bytes | None = None
+    try:
+        photos = await context.bot.get_user_profile_photos(user_id, limit=1)
+        if photos.total_count and photos.photos:
+            file = await context.bot.get_file(photos.photos[0][-1].file_id)
+            photo = bytes(await file.download_as_bytearray())
+    except TelegramError:
+        logger.warning("Could not load Telegram profile photo for %s", user_id, exc_info=True)
+    if photo is not None:
+        try:
+            await message.reply_photo(
+                photo=photo,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                reply_markup=markup,
+            )
+            return
+        except TelegramError:
+            logger.warning("Could not send profile photo for %s", user_id, exc_info=True)
+    path = _asset_path("profile")
+    if path is not None:
+        try:
+            with path.open("rb") as banner:
+                await message.reply_photo(
+                    photo=banner,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=markup,
+                )
+            return
+        except TelegramError:
+            logger.warning("Could not send profile banner", exc_info=True)
+    await message.reply_text(caption, parse_mode=ParseMode.HTML, reply_markup=markup)
+
+
+@_protected
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _send_profile(update, context)
 
 
 @_protected
 async def choose_class(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
-        await update.effective_message.reply_text(
-            "Awakening classes:\n"
-            + "\n".join(f"{key}: {v['name']} — {v['skill']}" for key, v in CLASSES.items())
+        p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
+        current = f"Current awakening: {p['class_name']}." if p else "You have not awakened yet."
+        details = "\n".join(
+            f"{v['name']} — {v['skill']} · HP {v['hp']} · ATK {v['attack']} · Mana {v['mana']} · Skill x{v['multiplier']}"
+            for v in CLASSES.values()
+        )
+        await _reply_visual(
+            update,
+            "classes",
+            "AWAKENING CLASSES\n\n"
+            + current
+            + "\nFirst awakening is free. Respec once at any time, and again at level 20.\n"
+            "Use /class vanguard, /class assassin, or /class arcanist.",
+            details=details,
         )
         return
     chosen = await _call(
         update, context.application.bot_data["game"].choose_class, _uid(update), context.args[0].lower()
     )
     if chosen:
-        await update.effective_message.reply_text(f"Awakening complete. You are now a {chosen['name']}.")
+        if chosen.get("changed"):
+            detail = f"Class changed to {chosen['name']}."
+        else:
+            detail = f"Awakening complete. You are now a {chosen['name']}."
+        remaining = chosen.get("remaining", 0)
+        detail += f" Respecs remaining now: {remaining} (one more unlocks at level 20)."
+        await update.effective_message.reply_text(detail)
 
 
 @_protected
 async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, context.application.bot_data["game"].daily, _uid(update))
     if result:
-        await update.effective_message.reply_text(
-            f"Daily reward: {result['coins']} coins, +{result['energy_gained']} energy. Streak: {result['streak']} day(s)."
+        await _reply_visual(
+            update,
+            "daily",
+            f"🎁 DAILY SUPPLIES\n{RULE}\n\n"
+            f"🪙 +{result['coins']:,} coins\n"
+            f"⚡ +{result['energy_gained']} energy\n"
+            f"🔥 Streak {result['streak']} day(s)\n\n"
+            f"{RULE}\n💡 Return tomorrow to keep the streak alive.",
         )
 
 
@@ -512,13 +1388,21 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     rows = await _call(update, social.team, _uid(update))
     if rows is not None:
-        await update.effective_message.reply_text(
-            "TEAM (up to 6)\n"
-            + (
-                "\n".join(f"Slot {r['slot']}: {r['display_name']} ({r['member_id']})" for r in rows)
-                or "Empty. Add with /team <player_id> <slot>."
+        team_lines = [
+            "⚔️ ACTIVE BATTLE TEAM",
+            RULE,
+            "",
+        ]
+        if rows:
+            team_lines.extend(
+                f"{r['slot']}. ★ {r['display_name']} ({r['member_id']})" for r in rows
             )
+        else:
+            team_lines.append("No members yet.")
+        team_lines.extend(
+            ["", RULE, "💡 Add with /team <player_id> <slot 1-6> · /team_power"]
         )
+        await _reply_visual(update, "team", "\n".join(team_lines))
 
 
 @_protected
@@ -534,14 +1418,18 @@ async def team_power(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await _call(update, context.application.bot_data["game"].quests, _uid(update))
     if rows is not None:
-        lines = ["DAILY OBJECTIVES"]
+        lines = ["📜 DAILY OBJECTIVES", RULE, ""]
         for quest in rows:
-            reward = (
-                "(claimed)" if quest["claimed"] else f"· reward {quest['coins']} coins + {quest['xp']} XP"
+            done = int(quest["progress"]) >= int(quest["goal"])
+            status = "✅ claimed" if quest["claimed"] else ("🎁 ready" if done else "")
+            lines.append(
+                f"{'✅' if quest['claimed'] else '•'} {quest['name']}\n"
+                f"   {_bar(int(quest['progress']), int(quest['goal']), 8)} {quest['progress']}/{quest['goal']}"
+                + (f" · {status}" if status else "")
+                + ("" if quest["claimed"] else f"\n   🪙 {quest['coins']} · ⭐ {quest['xp']} XP")
             )
-            lines.append(f"{quest['id']} — {quest['name']}: {quest['progress']}/{quest['goal']} {reward}")
-        lines.append("Claim with /quest_claim <id>.")
-        await update.effective_message.reply_text("\n".join(lines))
+        lines.extend(["", RULE, "💡 /quest_claim <id>"])
+        await _reply_visual(update, "quests", "\n".join(lines))
 
 
 @_protected
@@ -625,10 +1513,13 @@ async def battle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await _call(update, context.application.bot_data["game"].inventory, _uid(update))
     if rows is not None:
-        await update.effective_message.reply_text(
-            _inventory_text(rows), parse_mode="HTML", reply_markup=main_menu()
-        )
-
+        lines = ["🎒 INVENTORY", RULE, ""]
+        if rows:
+            lines.extend(f"• {x['name']} ×{x['quantity']}  ({x['item_id']})" for x in rows)
+        else:
+            lines.append("Your bag is empty.")
+        lines.extend(["", RULE, "💡 /shop · /use energy_shard · /market"])
+        await _reply_visual(update, "inventory", "\n".join(lines))
 
 @_protected
 async def economy_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -670,7 +1561,7 @@ async def companions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not rows:
         lines.append("No companions owned yet.")
     lines.append("/extract costs 25 essence · /equip <companion_id|none>")
-    await update.effective_message.reply_text("\n".join(lines))
+    await _reply_visual(update, "companions", "\n".join(lines))
 
 
 @_protected
@@ -702,9 +1593,16 @@ async def equip_companion(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 @_protected
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = context.application.bot_data["game"].shop()
-    await update.effective_message.reply_text(
-        "HUNTER SUPPLY\n"
-        + "\n".join(f"{x['id']} — {x['name']}: {x['price']} coins · {x['description']}" for x in rows)
+    details = "\n".join(
+        f"• {x['name']} — {x['price']:,} coins\n  {x['description']}\n  /buy {x['id']}"
+        for x in rows
+    )
+    await _reply_visual(
+        update,
+        "shop",
+        f"🛒 SUPPLY DEPOT\n{RULE}\n\nTonics, mana vials and energy shards.\n\n"
+        "Buy with /buy <item_id> [qty].",
+        details=f"{RULE}\n{details}",
     )
 
 
@@ -740,14 +1638,61 @@ async def use_item(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @_protected
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    rows = await _call(update, context.application.bot_data["game"].leaderboard)
-    if rows is not None:
-        lines = ["TOP HUNTERS"]
-        lines.extend(
-            f"{i}. {row['display_name']} — Lv {row['level']} · {row['xp']} XP"
-            for i, row in enumerate(rows, 1)
+    categories = {"level", "xp", "coins", "arena", "wins", "guild"}
+    category = context.args[0].lower() if context.args else "level"
+    if not context.args:
+        command = (
+            (update.effective_message.text or "").split()[0].lstrip("/").split("@")[0]
+            if update.effective_message and update.effective_message.text
+            else ""
         )
-        await update.effective_message.reply_text("\n".join(lines))
+        category = {
+            "topexp": "xp",
+            "toparena": "arena",
+            "topwins": "wins",
+            "topguild": "guild",
+            "wealth": "coins",
+        }.get(command, "level")
+    if category not in categories:
+        raise GameError(
+            "Usage: /leaderboard [level|xp|coins|arena|wins|guild]. Example: /leaderboard arena"
+        )
+    rows = await _call(
+        update, context.application.bot_data["game"].leaderboards, category, 10
+    )
+    if rows is None:
+        return
+    titles = {
+        "level": "TOP HUNTERS · LEVEL",
+        "xp": "TOP HUNTERS · EXPERIENCE",
+        "coins": "RICHEST HUNTERS",
+        "arena": "ARENA RATINGS",
+        "wins": "MOST ARENA WINS",
+        "guild": "TOP GUILDS",
+    }
+    templates = {
+        "level": "Lv {value} · {detail} XP",
+        "xp": "{value:,} XP · Lv {detail}",
+        "coins": "{value:,} coins · Lv {detail}",
+        "arena": "{value} rating · {detail} wins",
+        "wins": "{value} wins · {detail} rating",
+        "guild": "Lv {value} · {detail} guild XP",
+    }
+    lines = [titles[category], ""]
+    if not rows:
+        lines.append("No entries yet.")
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    for i, row in enumerate(rows, 1):
+        lines.append(
+            f"{medals.get(i, f'{i}.')} {row['name']} — " + templates[category].format(**row)
+        )
+    lines.extend(
+        [
+            "",
+            "Other boards: /leaderboard level · xp · coins · arena · wins · guild",
+        ]
+    )
+    await _reply_visual(update, "leaderboard", "\n".join(lines))
 
 
 @_protected
@@ -757,14 +1702,16 @@ async def guild(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if result["guild"]:
         g = result["guild"]
-        lines = [f"GUILD {g['name']} · Level {g['level']} · {g['xp']} XP"]
+        lines = [f"🏰 {g['name'].upper()}", RULE, f"Level {g['level']} · {g['xp']:,} XP", "", "✦ MEMBERS"]
         lines.extend(f"• {m['display_name']}" for m in result["members"])
+        lines.extend(["", RULE, "💡 /guild_donate · /guild_raid · /guild_kick"])
     else:
-        lines = ["GUILDS — create with /guild_create <name> or join using /guild_join <id>"]
+        lines = ["🏰 GUILDS", RULE, "No guild joined.", "", "✦ AVAILABLE GUILDS"]
         lines.extend(
             f"{x['id']}. {x['name']} · Lv {x['level']} · {x['members']} members" for x in result["guilds"]
         )
-    await update.effective_message.reply_text("\n".join(lines))
+        lines.extend(["", RULE, "💡 /guild_create <name> · /guild_join <id>"])
+    await _reply_visual(update, "guild", "\n".join(lines))
 
 
 @_protected
@@ -870,13 +1817,14 @@ async def raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines = [
             f"WORLD RAID — {boss['name']} · Cycle {boss['cycle']}",
             f"HP {boss['hp']:,}/{boss['max_hp']:,}",
+            "",
             "Top hunters:",
         ]
         lines.extend(
             f"{i}. {p['display_name']} · {p['total_damage']:,}" for i, p in enumerate(result["top"], 1)
         )
         lines.append("Attack with /raid_attack (20 energy; 60-minute cooldown).")
-        await update.effective_message.reply_text("\n".join(lines))
+        await _reply_visual(update, "boss_raid", "\n".join(lines))
 
 
 @_protected
@@ -897,11 +1845,12 @@ async def tournament(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"WEEKLY HUNTER ARENA · {result['week']}",
             f"Entered: {result['joined']} · Score: {result['score']:,}",
             f"Participants: {result['participants']} · Prizes: {', '.join(map(str, result['prizes']))} coins",
+            "",
             "Top hunters:",
         ]
         lines.extend(f"{i}. {x['display_name']} — {x['score']:,}" for i, x in enumerate(result["leaders"], 1))
         lines.append("Join with /tournament_join; claim after reset with /tournament_claim.")
-        await update.effective_message.reply_text("\n".join(lines))
+        await _reply_visual(update, "tournament", "\n".join(lines))
 
 
 @_protected
@@ -932,13 +1881,22 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         raise GameError("Page number must be positive.")
     result = await _call(update, context.application.bot_data["market"].browse, _uid(update), offset)
     if result is not None:
-        lines = [f"HUNTER MARKET · {result['total']} active listings · page {offset // 10 + 1}"]
-        lines.extend(
-            f"#{x['id']} {x['item_name']} ×{x['quantity']} — {x['price']:,} coins · {x['seller_name']}"
-            for x in result["items"]
-        )
-        lines.append("/market_buy <listing_id> · /market page numbers are 0-based")
-        await update.effective_message.reply_text("\n".join(lines))
+        lines = [
+            "🏪 HUNTER MARKET",
+            RULE,
+            f"📦 {result['total']} active listings · Page {offset // 10 + 1}",
+            "",
+        ]
+        if result["items"]:
+            lines.extend(
+                f"#{x['id']} {x['item_name']} ×{x['quantity']}\n"
+                f"   🪙 {x['price']:,} · {x['seller_name']}"
+                for x in result["items"]
+            )
+        else:
+            lines.append("No listings on this page.")
+        lines.extend(["", RULE, "💡 /market_buy <id> · /market_list · /market <page>"])
+        await _reply_visual(update, "market", "\n".join(lines))
 
 
 @_protected
@@ -1203,6 +2161,42 @@ COMMANDS = {
     "team_power": team_power,
     "economy_history": economy_history,
     "about": about_command,
+    "userid": userid,
+    "query": query_command,
+    "bag": inventory,
+    "top": leaderboard,
+    "topexp": leaderboard,
+    "toparena": leaderboard,
+    "topwins": leaderboard,
+    "topguild": leaderboard,
+    "wealth": leaderboard,
+    "myteam": team,
+    "mycharacters": companions,
+    "stats": stats_command,
+    "data": data_command,
+    "travel": travel_command,
+    "explore": explore_command,
+    "nickname": nickname_command,
+    "links": links_command,
+    "ping": ping_command,
+    "ask": ask_command,
+    "rules": rules_command,
+    "achievements": achievements_command,
+    "hunt": hunt,
+    "adventure": hunt,
+    "flee": flee,
+    "escape": flee,
+    "npc": npc,
+    "status": profile,
+    "id": userid,
+    "inv": inventory,
+    "pets": companions,
+    "clan": guild,
+    "boss": raid,
+    "balance": balance_command,
+    "stamina": stamina_command,
+    "settings": settings_command,
+    "unstuck": flee,
 }
 
 PUBLIC_COMMANDS = [
@@ -1259,6 +2253,37 @@ PUBLIC_COMMANDS = [
     ("team_power", "View combined team power"),
     ("economy_history", "View recent economy events"),
     ("about", "Learn about Monarch"),
+    ("userid", "Show your user ID and chat ID"),
+    ("query", "Send a question or bug report to admins"),
+    ("travel", "View regions and unlock levels"),
+    ("explore", "Explore for coins, essence and items"),
+    ("stats", "View combat stats or look up a class"),
+    ("data", "Search the game codex"),
+    ("nickname", "Change your hunter nickname"),
+    ("bag", "Open your inventory"),
+    ("top", "View the leaderboard"),
+    ("myteam", "Manage your team"),
+    ("mycharacters", "View your echo companions"),
+    ("links", "Show channel, group and support links"),
+    ("ping", "Check bot latency"),
+    ("ask", "Ask the assistant about commands"),
+    ("rules", "Read the community rules"),
+    ("achievements", "Track your milestone unlocks"),
+    ("leaderboard", "Top hunters (level, xp, coins, arena, wins, guild)"),
+    ("topexp", "Experience leaderboard"),
+    ("toparena", "Arena rating leaderboard"),
+    ("topwins", "Arena wins leaderboard"),
+    ("topguild", "Guild leaderboard"),
+    ("wealth", "Richest hunters"),
+    ("status", "Open your hunter profile"),
+    ("stamina", "Check energy"),
+    ("balance", "Check coins and essence"),
+    ("settings", "View links and settings"),
+    ("hunt", "Preview a wild enemy: Battle or Flee"),
+    ("adventure", "Hunt alias"),
+    ("flee", "Escape your active battle"),
+    ("escape", "Escape alias"),
+    ("npc", "List enemies in a region"),
 ]
 
 
@@ -1269,7 +2294,10 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         result = await asyncio.to_thread(context.application.bot_data["game"].profile, query.from_user.id)
         text = _profile_text(result)
     elif action == "dungeons":
-        text = "CHOOSE YOUR HUNT\n\nSelect a dungeon to begin. Higher tiers unlock as you grow."
+        text = (
+            "CHOOSE YOUR HUNT\n\nSelect a dungeon to begin. Higher tiers unlock as you grow.\n\n"
+            "Or preview a wild enemy with /hunt gate, /hunt rift, or /hunt abyss."
+        )
         buttons = [
             [
                 InlineKeyboardButton(
@@ -1294,7 +2322,7 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     elif action == "home":
         await query.edit_message_text(
-            "MONARCH HUNTER HUB\nChoose your next destination.", reply_markup=main_menu()
+            "MONARCH HUNTER HUB\nChoose your next destination.", reply_markup=main_menu(context.application.bot_data["settings"])
         )
         return
     elif action == "about":
@@ -1336,6 +2364,23 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
     elif action == "guild":
         text = "Guilds: /guild to browse · /guild_create <name> · /guild_join <id>"
+    elif action == "explore":
+        result = await asyncio.to_thread(
+            context.application.bot_data["game"].explore, query.from_user.id
+        )
+        if result["outcome"] == "coins":
+            found = f"You found {result['coins']} coins."
+        elif result["outcome"] == "essence":
+            found = f"You found {result['essence']} rift essence."
+        elif result["outcome"] == "item":
+            found = f"You found a {result['item']}."
+        else:
+            found = f"Rare find! {result['coins']} coins and {result['essence']} rift essence."
+        level_text = f"\nLevel up ×{result['levels']}!" if result["levels"] else ""
+        text = (
+            f"EXPLORING THE RIFT\n\n{found}\n+{result['xp']} XP{level_text}\n\n"
+            f"Energy remaining: {result['energy']}"
+        )
     elif action == "raid":
         result = await asyncio.to_thread(context.application.bot_data["game"].raid_status)
         b = result["boss"]
@@ -1356,29 +2401,55 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
     else:
         text = "Use /help to see available actions."
-    await query.edit_message_text(text, reply_markup=main_menu(), parse_mode="HTML")
+    await query.edit_message_text(
+        text,
+        reply_markup=main_menu(context.application.bot_data["settings"]),
+        parse_mode="HTML",
+    )
 
 
 async def _menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
+    rich = {
+        "m:profile": _send_profile,
+        "m:travel": travel_command,
+        "m:guild": guild,
+        "m:market": market,
+        "m:raid": raid,
+        "m:tournament": tournament,
+        "m:daily": daily,
+        "m:explore": explore_command,
+        "m:hunt": hunt,
+    }
+    if query.data in rich:
+        try:
+            await rich[query.data](update, context)
+        except GameError as exc:
+            if query.message:
+                await query.message.reply_text(str(exc))
+        except Exception:
+            logger.exception("Rich menu callback failed; update=%s", update.update_id)
+            if query.message:
+                await query.message.reply_text("Could not load that section. Try again shortly.")
+        return
     try:
         await _render_menu_callback(update, context)
     except GameError as exc:
         text = str(exc)
         try:
-            await query.edit_message_text(text, reply_markup=main_menu())
+            await query.edit_message_text(text, reply_markup=main_menu(context.application.bot_data["settings"]))
         except BadRequest:
             if query.message:
-                await query.message.reply_text(text, reply_markup=main_menu())
+                await query.message.reply_text(text, reply_markup=main_menu(context.application.bot_data["settings"]))
     except Exception:
         logger.exception("Menu callback failed; update=%s", update.update_id)
         text = "Could not load that section. Try the matching command or /menu again."
         try:
-            await query.edit_message_text(text, reply_markup=main_menu())
+            await query.edit_message_text(text, reply_markup=main_menu(context.application.bot_data["settings"]))
         except BadRequest:
             if query.message:
-                await query.message.reply_text(text, reply_markup=main_menu())
+                await query.message.reply_text(text, reply_markup=main_menu(context.application.bot_data["settings"]))
 
 
 async def _codex_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1409,10 +2480,16 @@ async def _codex_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def _post_init(application: Application) -> None:
     commands = [BotCommand(name, description) for name, description in PUBLIC_COMMANDS]
-    await application.bot.set_my_commands(commands)
-    await application.bot.set_my_name(BOT_NAME)
-    await application.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
-    await application.bot.set_my_description(BOT_DESCRIPTION)
+    for action, value in (
+        ("set_my_commands", commands),
+        ("set_my_name", BOT_NAME),
+        ("set_my_short_description", BOT_SHORT_DESCRIPTION),
+        ("set_my_description", BOT_DESCRIPTION),
+    ):
+        try:
+            await getattr(application.bot, action)(value)
+        except TelegramError:
+            logger.warning("Could not run Telegram %s during startup", action, exc_info=True)
 
 
 async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1420,7 +2497,16 @@ async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def build_application(settings: Settings, game: GameService) -> Application:
-    application = ApplicationBuilder().token(settings.bot_token).post_init(_post_init).build()
+    application = (
+        ApplicationBuilder()
+        .token(settings.bot_token)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .pool_timeout(30)
+        .post_init(_post_init)
+        .build()
+    )
     application.bot_data["game"] = game
     application.bot_data["settings"] = settings
     application.bot_data["market"] = MarketplaceService(game)
@@ -1429,6 +2515,7 @@ def build_application(settings: Settings, game: GameService) -> Application:
     for name, handler in COMMANDS.items():
         application.add_handler(CommandHandler(name, handler))
     application.add_handler(CallbackQueryHandler(battle_callback, pattern=r"^b:"))
+    application.add_handler(CallbackQueryHandler(hunt_callback, pattern=r"^h:"))
     application.add_handler(CallbackQueryHandler(_menu_callback, pattern=r"^m:"))
     application.add_handler(CallbackQueryHandler(_codex_callback, pattern=r"^c:"))
     application.add_error_handler(_on_error)
