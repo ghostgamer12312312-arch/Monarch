@@ -745,7 +745,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @_protected
 async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
-        "MONARCH — HUNTER COMMANDS\n"
+        "╭─『 MONARCH COMMANDS 』\n" + RULE + "\n\n"
         "/start — create your hunter file\n/about — learn what Monarch is\n/menu — open the interactive game hub\n/profile — stats and awakening class\n"
         "/userid — show your user ID and current chat ID\n/query <message> — send a question or bug report to the admin team\n"
         "/class [vanguard|assassin|arcanist] — awaken or respec (1 free, another at Lv 20)\n"
@@ -766,19 +766,22 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
         "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
         "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
         "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches"
+        "\n\n" + RULE + "\n💡 /menu · /ask <question> · /rules"
     )
 
 
 @_protected
 async def about_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(f"{BOT_DESCRIPTION}\n\nUse /help to see every command.")
+    await update.effective_message.reply_text(
+        f"╭─『 ABOUT MONARCH 』\n{RULE}\n\n{BOT_DESCRIPTION}\n\n{RULE}\n💡 /help · /menu · /rules"
+    )
 
 
 @_protected
 async def userid(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
-    lines = ["YOUR TELEGRAM IDS"]
+    lines = ["╭─『 YOUR IDS 』", RULE, ""]
     if user is not None:
         handle = f" (@{user.username})" if user.username else ""
         name = " ".join(filter(None, [user.first_name, user.last_name])) or "Unknown"
@@ -787,6 +790,7 @@ async def userid(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     if chat is not None:
         title = f" · {chat.title}" if chat.title else ""
         lines.append(f"Chat ID: {chat.id} ({chat.type}{title})")
+    lines.extend(["", RULE, "💡 Keep these private · /query to report an issue"])
     if update.effective_message is not None:
         await update.effective_message.reply_text("\n".join(lines))
 
@@ -799,9 +803,10 @@ async def query_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     chat = update.effective_chat
     if not args:
         await update.effective_message.reply_text(
-            "SEND A QUERY\nUsage: /query <your question or report>\n\n"
+            f"╭─『 SEND A QUERY 』\n{RULE}\n\n"
+            "Usage: /query <your question or report>\n"
             "Example: /query my dungeon battle is stuck on turn 3\n\n"
-            "Your report is sent to the admin team with your user ID and chat ID."
+            f"{RULE}\n💡 Your report reaches the admin team with your IDs."
         )
         return
     text = " ".join(args).strip()
@@ -856,7 +861,8 @@ async def query_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 @_protected
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
-        "MONARCH HUNTER HUB\nChoose a destination.", reply_markup=main_menu(context.application.bot_data["settings"])
+        f"╭─『 HUNTER HUB 』\n{RULE}\n\nChoose a destination.\n\n{RULE}\n💡 /help for commands · /profile for your file",
+        reply_markup=main_menu(context.application.bot_data["settings"]),
     )
 
 
@@ -909,14 +915,20 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         found = _lookup_entry(" ".join(context.args))
         if found is None:
             await update.effective_message.reply_text(
-                "No match. Try /stats vanguard, /stats assassin, /stats arcanist, or a companion name."
+                f"╭─『 NO MATCH 』\n{RULE}\n\nTry /stats vanguard, /stats assassin, /stats arcanist, or a companion name."
             )
             return
         group, key, data = found
-        lines = [f"{str(data.get('name', key)).upper()} · {group}"]
+        lines = [
+            f"╭─『 {str(data.get('name', key)).upper()} 』",
+            RULE,
+            f"{group} entry",
+            "",
+        ]
         for field in ("rarity", "hp", "attack", "mana", "skill", "multiplier", "description", "energy", "enemy_hp", "enemy_attack", "xp", "coins", "essence", "level", "price", "effect", "amount"):
             if field in data:
-                lines.append(f"{field.replace('_', ' ').title()}: {data[field]}")
+                lines.append(f"• {field.replace('_', ' ').title()}: {data[field]}")
+        lines.extend(["", RULE, "💡 /codex · /data <name>"])
         await update.effective_message.reply_text("\n".join(lines))
         return
     p = await _call(update, context.application.bot_data["game"].profile, _uid(update))
@@ -925,12 +937,13 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     crit = float(CLASS_CRIT.get(p["class_id"], 0.08))
     dodge = float(CLASS_DODGE.get(p["class_id"], 0.05))
     await update.effective_message.reply_text(
-        f"COMBAT STATS — {p['display_name']}\n"
-        f"Class: {p['class_name']} · Rank: {p['rank']} (Level {p['level']})\n"
-        f"HP: {p['base_hp']} · Attack: {p['attack']} · Mana: {p['max_mana']}\n"
-        f"Crit chance: {crit * 100:.0f}% · Dodge chance: {dodge * 100:.0f}%\n"
-        f"Echo ally: {p['companion_name']}\n\n"
-        "Use /stats <class or companion> for details. Use /data <name> to search the codex."
+        f"╭─『 COMBAT STATS 』\n{RULE}\n"
+        f"🗡️ {p['display_name']}\n"
+        f"{p['class_name']} · {p['rank']} · Level {p['level']}\n\n"
+        f"❤️ HP {p['base_hp']} · ⚔️ ATK {p['attack']} · 🔷 Mana {p['max_mana']}\n"
+        f"🎯 Crit {crit * 100:.0f}% · 💨 Dodge {dodge * 100:.0f}%\n"
+        f"🐺 Echo ally: {p['companion_name']}\n\n"
+        f"{RULE}\n💡 /stats <class or companion> · /data <name>"
     )
 
 
@@ -953,8 +966,14 @@ async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYP
         ("Collect 3 Echo companions", len(companions) >= 3),
         ("Own every Echo companion", len(companions) >= len(COMPANIONS)),
     ]
-    lines = [f"ACHIEVEMENTS — {sum(1 for _, done in milestones if done)}/{len(milestones)} unlocked", ""]
+    lines = [
+        "╭─『 ACHIEVEMENTS 』",
+        RULE,
+        f"Unlocked {sum(1 for _, done in milestones if done)}/{len(milestones)}",
+        "",
+    ]
     lines.extend(f"{'✅' if done else '🔒'} {name}" for name, done in milestones)
+    lines.extend(["", RULE, "💡 /profile · /stats · /leaderboard"])
     await _reply_visual(update, "achievements", "\n".join(lines))
 
 
@@ -962,10 +981,11 @@ async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def data_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
         await update.effective_message.reply_text(
-            "DATA CODEX\nSearch anything with /data <name>.\n\n"
-            f"Classes: {len(CLASSES)} · Dungeons: {len(DUNGEONS)} · Items: {len(ITEMS)} · "
-            f"Companions: {len(COMPANIONS)} · Regions: {len(REGIONS)}\n\n"
-            "Examples: /data rift, /data arcanist, /data ash hound, /data healing tonic"        )
+            f"╭─『 DATA CODEX 』\n{RULE}\n\n"
+            f"Classes {len(CLASSES)} · Dungeons {len(DUNGEONS)} · Items {len(ITEMS)} · "
+            f"Companions {len(COMPANIONS)} · Regions {len(REGIONS)}\n\n"
+            f"{RULE}\n💡 /data rift · /data arcanist · /data healing tonic"
+        )
         return
     needle = " ".join(context.args).strip().lower()
     matches = []
@@ -977,7 +997,9 @@ async def data_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not matches:
         await update.effective_message.reply_text("No codex entry matched that search.")
         return
-    await update.effective_message.reply_text("DATA RESULTS\n" + "\n".join(matches[:15]))
+    await update.effective_message.reply_text(
+        f"╭─『 DATA RESULTS 』\n{RULE}\n\n" + "\n".join(matches[:15]) + f"\n\n{RULE}\n💡 /stats <name> for full entry"
+    )
 
 
 @_protected
@@ -1003,7 +1025,7 @@ async def travel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 @_protected
 async def links_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.application.bot_data["settings"]
-    lines = ["MONARCH LINKS", ""]
+    lines = ["╭─『 MONARCH LINKS 』", RULE, ""]
     if settings.channel_link:
         lines.append(f"Channel: {settings.channel_link}")
     if settings.group_link:
@@ -1012,6 +1034,7 @@ async def links_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         lines.append(f"Support: {settings.support_link}")
     if len(lines) == 2:
         lines.append("No community links are configured yet.")
+    lines.extend(["", RULE, "💡 Join the group to grow the hunt"])
     await update.effective_message.reply_text(
         "\n".join(lines), reply_markup=InlineKeyboardMarkup([community_links(settings)]) if community_links(settings) else None
     )
@@ -1022,7 +1045,9 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     started = time.perf_counter()
     await context.bot.get_me()
     elapsed = (time.perf_counter() - started) * 1000
-    await update.effective_message.reply_text(f"Pong! Telegram latency: {elapsed:.0f} ms")
+    await update.effective_message.reply_text(
+        f"╭─『 PING 』\n{RULE}\n\n🟢 Online · Telegram latency {elapsed:.0f} ms"
+    )
 
 
 ASK_TOPICS = {
@@ -1058,14 +1083,15 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     question = " ".join(context.args or []).strip().lower()
     if not question:
         await update.effective_message.reply_text(
-            "ASK XANDER\nAsk about any command, e.g. /ask how do I battle?\n"
-            "Try: battle, team, daily, shop, market, guild, raid, quest, class, travel, links."
+            f"╭─『 ASK 』\n{RULE}\n\n"
+            "Ask about any command, e.g. /ask how do I battle?\n"
+            f"{RULE}\n💡 Try: battle, team, daily, shop, market, guild, raid, travel, links"
         )
         return
     answers = [answer for key, answer in ASK_TOPICS.items() if key in question]
     if not answers:
         await update.effective_message.reply_text(
-            "I am not sure yet. Try /help for every command, or ask about battle, team, daily, market, guild, raid, travel, or links."
+            f"╭─『 NO ANSWER 』\n{RULE}\n\nTry /help for every command, or ask about battle, team, daily, market, guild, raid, travel, or links."
         )
         return
     await update.effective_message.reply_text("XANDER SAYS\n\n" + "\n\n".join(dict.fromkeys(answers[:4])))
@@ -1258,7 +1284,7 @@ async def codex(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         text = sections[category]
     await update.effective_message.reply_text(
-        text,
+        f"╭─『 CODEX 』\n{RULE}\n\n{text}\n\n{RULE}\n💡 /data <name> · /stats <class>",
         reply_markup=InlineKeyboardMarkup(
             [
                 [
@@ -1303,7 +1329,7 @@ async def arena(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await _call(update, context.application.bot_data["social"].leaderboard)
     if rows is not None:
         await update.effective_message.reply_text(
-            "PVP ARENA\n"
+            f"╭─『 PVP ARENA 』\n{RULE}\n"
             + (
                 "\n".join(
                     f"{i}. {r['display_name']} — {r['rating']} rating · {r['wins']}W/{r['losses']}L"
@@ -1318,10 +1344,13 @@ async def arena(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def tournament_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, context.application.bot_data["social"].tournament_slots, _uid(update))
     if result is not None:
-        text = f"10-SLOT TOURNAMENT · {result['week']}\n" + (
-            "\n".join(f"Slot {r['slot']}: {r['display_name']}" for r in result["slots"]) or "No entrants yet."
+        text = (
+            f"╭─『 10-SLOT TOURNAMENT 』\n{RULE}\n"
+            f"Week {result['week']}\n\n"
+            + ("\n".join(f"Slot {r['slot']}: {r['display_name']}" for r in result["slots"]) or "No entrants yet.")
+            + f"\n\n{RULE}\n💡 /tournament_join to enter"
         )
-        await update.effective_message.reply_text(text + "\nJoin with /tournament_join.")
+        await update.effective_message.reply_text(text)
 
 
 @_protected
@@ -1351,7 +1380,7 @@ async def tournament_matches(update: Update, context: ContextTypes.DEFAULT_TYPE)
     rows = await _call(update, context.application.bot_data["social"].tournament_matches, _uid(update))
     if rows is not None:
         await update.effective_message.reply_text(
-            "TOURNAMENT MATCHES\n"
+            f"╭─『 TOURNAMENT MATCHES 』\n{RULE}\n"
             + (
                 "\n".join(
                     f"{r['id']}: {r['player_a']} vs {r['player_b']} · {r['status']} · check in with /tournament_checkin {r['id']}"
@@ -1359,6 +1388,7 @@ async def tournament_matches(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
                 or "No matches scheduled."
             )
+            + f"\n\n{RULE}\n💡 /tournament_checkin <match_id>"
         )
 
 
@@ -1367,8 +1397,12 @@ async def guild_raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     result = await _call(update, context.application.bot_data["social"].guild_raid, _uid(update))
     if result:
         await update.effective_message.reply_text(
-            f"GUILD RAID · {result['boss']} · Cycle {result['cycle']}\nYour damage: {result['damage']}\nBoss HP: {result['hp']:,}/{result['max_hp']:,}\n"
+            f"╭─『 GUILD RAID 』\n{RULE}\n"
+            f"👹 {result['boss']} · Cycle {result['cycle']}\n"
+            f"Your damage: {result['damage']:,}\n"
+            f"Boss HP: {_bar(int(result['hp']), int(result['max_hp']), 10)} {result['hp']:,}/{result['max_hp']:,}\n\n"
             + "\n".join(f"{i}. {x['display_name']} — {x['damage']:,}" for i, x in enumerate(result["top"], 1))
+            + f"\n\n{RULE}\n💡 /raid_attack"
         )
 
 
@@ -1553,14 +1587,15 @@ async def companions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     rows = await _call(update, context.application.bot_data["game"].companions, _uid(update))
     if rows is None:
         return
-    lines = ["ECHO COMPANIONS"]
+    lines = ["╭─『 ECHO COMPANIONS 』", RULE, ""]
     lines.extend(
-        f"{'★ ' if row['equipped'] else ''}{row['name']} ({row['id']}) · {row['rarity']} · Lv {row['level']} · +{row['attack'] + (row['level'] - 1)} ATK / +{row['hp'] + (row['level'] - 1) * 3} HP · fragments {row['fragments']}/3"
+        f"{'★ ' if row['equipped'] else '•'} {row['name']} ({row['id']})\n"
+        f"   {row['rarity']} · Lv {row['level']} · +{row['attack'] + (row['level'] - 1)} ATK / +{row['hp'] + (row['level'] - 1) * 3} HP · shards {row['fragments']}/3"
         for row in rows
     )
     if not rows:
         lines.append("No companions owned yet.")
-    lines.append("/extract costs 25 essence · /equip <companion_id|none>")
+    lines.extend(["", RULE, "💡 /extract 25 essence · /equip <companion_id|none>"])
     await _reply_visual(update, "companions", "\n".join(lines))
 
 
@@ -1815,15 +1850,17 @@ async def raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if result is not None:
         boss = result["boss"]
         lines = [
-            f"WORLD RAID — {boss['name']} · Cycle {boss['cycle']}",
-            f"HP {boss['hp']:,}/{boss['max_hp']:,}",
+            "╭─『 WORLD RAID 』",
+            RULE,
+            f"👹 {boss['name']} · Cycle {boss['cycle']}",
+            f"❤️ HP {_bar(int(boss['hp']), int(boss['max_hp']), 10)} {boss['hp']:,}/{boss['max_hp']:,}",
             "",
-            "Top hunters:",
+            "🏆 Top hunters:",
         ]
         lines.extend(
             f"{i}. {p['display_name']} · {p['total_damage']:,}" for i, p in enumerate(result["top"], 1)
         )
-        lines.append("Attack with /raid_attack (20 energy; 60-minute cooldown).")
+        lines.extend(["", RULE, "💡 /raid_attack · 20 energy · 60 min cooldown"])
         await _reply_visual(update, "boss_raid", "\n".join(lines))
 
 
@@ -1842,14 +1879,16 @@ async def tournament(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     result = await _call(update, context.application.bot_data["tournament"].status, _uid(update))
     if result:
         lines = [
-            f"WEEKLY HUNTER ARENA · {result['week']}",
+            "╭─『 WEEKLY HUNTER ARENA 』",
+            RULE,
+            f"🗓️ Week {result['week']}",
             f"Entered: {result['joined']} · Score: {result['score']:,}",
-            f"Participants: {result['participants']} · Prizes: {', '.join(map(str, result['prizes']))} coins",
+            f"👥 {result['participants']} hunters · Prizes {', '.join(map(str, result['prizes']))} coins",
             "",
-            "Top hunters:",
+            "🏆 Top hunters:",
         ]
         lines.extend(f"{i}. {x['display_name']} — {x['score']:,}" for i, x in enumerate(result["leaders"], 1))
-        lines.append("Join with /tournament_join; claim after reset with /tournament_claim.")
+        lines.extend(["", RULE, "💡 /tournament_join · /tournament_claim"])
         await _reply_visual(update, "tournament", "\n".join(lines))
 
 
