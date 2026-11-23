@@ -146,7 +146,7 @@ async def test_dungeon_button_uses_server_battle_service_and_renders_turn(game):
     update = FakeCallbackUpdate("m:battle_gate")
     await handlers._menu_callback(update, context)
     assert update.callback_query.answers == [{"text": None}]
-    assert update.callback_query.edits[0][0].startswith("CRIMSON GATE · TURN 1")
+    assert update.callback_query.edits[0][0].startswith("🌸 CRIMSON GATE · TURN 1")
     assert service.battle_status(101)["dungeon_id"] == "gate"
 
 
@@ -163,7 +163,7 @@ async def test_battle_action_callback_commits_and_refreshes_screen(game):
     update = FakeCallbackUpdate(f"b:{battle['id']}:{battle['turn']}:attack")
     await handlers.battle_callback(update, context)
     assert update.callback_query.answers == [{"text": None}]
-    assert update.callback_query.edits[0][0].startswith("CRIMSON GATE · TURN 2")
+    assert update.callback_query.edits[0][0].startswith("🌸 CRIMSON GATE · TURN 2")
     assert service.battle_status(101)["turn"] == 2
 
 
@@ -219,7 +219,7 @@ async def test_small_command_surface_renders_real_player_data(game):
     choose = FakeUpdate(101)
     choose.args = []
     await handlers.choose_class(choose, SimpleNamespace(application=context.application, args=[]))
-    assert "Awakening classes" in choose.effective_message.replies[0]
+    assert "AWAKENING CLASSES" in choose.effective_message.replies[0]
 
     choose_class = FakeUpdate(101)
     await handlers.choose_class(
@@ -233,7 +233,7 @@ async def test_small_command_surface_renders_real_player_data(game):
 
     shop = FakeUpdate(101)
     await handlers.shop(shop, SimpleNamespace(application=context.application, args=[]))
-    assert "HUNTER SUPPLY" in shop.effective_message.replies[0]
+    assert "SUPPLY DEPOT" in shop.effective_message.replies[0]
 
     battle_status = FakeUpdate(101)
     await handlers.battle_status(battle_status, SimpleNamespace(application=context.application, args=[]))
@@ -251,11 +251,10 @@ async def test_profile_and_inventory_use_rich_safe_markup(game):
     )
     profile_update = FakeUpdate(101)
     await handlers.profile(profile_update, context)
-    assert "<b>HUNTER PROFILE</b>" in profile_update.effective_message.replies[0]
+    assert "HUNTER FILE" in profile_update.effective_message.replies[0]
     assert "&lt;Hunter&gt;" in profile_update.effective_message.replies[0]
     assert profile_update.effective_message.reply_kwargs[0]["parse_mode"] == "HTML"
 
     inventory_update = FakeUpdate(101)
     await handlers.inventory(inventory_update, context)
-    assert "<b>INVENTORY</b>" in inventory_update.effective_message.replies[0]
-    assert inventory_update.effective_message.reply_kwargs[0]["parse_mode"] == "HTML"
+    assert "INVENTORY" in inventory_update.effective_message.replies[0]

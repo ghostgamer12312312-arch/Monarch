@@ -415,7 +415,7 @@ async def hunt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "💡 Hunt again when you are ready."
         )
         try:
-            if query.message and query.message.photo:
+            if query.message is not None and getattr(query.message, "photo", None):
                 await query.edit_message_caption(
                     caption=_trim_caption(text, 1000), reply_markup=markup
                 )
@@ -680,7 +680,7 @@ async def _show_battle(update: Update, battle: dict, *, edit: bool = False) -> N
     if edit and update.callback_query:
         query = update.callback_query
         try:
-            if query.message and query.message.photo:
+            if query.message is not None and getattr(query.message, "photo", None):
                 await query.edit_message_caption(caption=_trim_caption(text, 1000), reply_markup=markup)
             else:
                 await query.edit_message_text(text, reply_markup=markup)
@@ -1124,7 +1124,7 @@ async def _send_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             ],
             [InlineKeyboardButton("Inventory", callback_data="m:inventory"), InlineKeyboardButton("Guild", callback_data="m:guild")],
             *([[InlineKeyboardButton(label, url=url)] for label, url in (("Channel", settings.channel_link), ("Group", settings.group_link), ("Support", settings.support_link)) if url] if community_links(settings) else []),
-            [InlineKeyboardButton("Back to hub", callback_data="m:menu")],
+            [InlineKeyboardButton("Back to hub", callback_data="m:home")],
         ]
     )
     message = update.effective_message
@@ -1132,11 +1132,14 @@ async def _send_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     photo: bytes | None = None
     try:
-        photos = await context.bot.get_user_profile_photos(user_id, limit=1)
+        bot = getattr(context, "bot", None)
+        if bot is None:
+            raise AttributeError("context.bot unavailable")
+        photos = await bot.get_user_profile_photos(user_id, limit=1)
         if photos.total_count and photos.photos:
-            file = await context.bot.get_file(photos.photos[0][-1].file_id)
+            file = await bot.get_file(photos.photos[0][-1].file_id)
             photo = bytes(await file.download_as_bytearray())
-    except TelegramError:
+    except (TelegramError, AttributeError):
         logger.warning("Could not load Telegram profile photo for %s", user_id, exc_info=True)
     if photo is not None:
         try:
@@ -1147,7 +1150,7 @@ async def _send_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 reply_markup=markup,
             )
             return
-        except TelegramError:
+        except (TelegramError, AttributeError):
             logger.warning("Could not send profile photo for %s", user_id, exc_info=True)
     path = _asset_path("profile")
     if path is not None:
@@ -1160,7 +1163,7 @@ async def _send_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     reply_markup=markup,
                 )
             return
-        except TelegramError:
+        except (TelegramError, AttributeError):
             logger.warning("Could not send profile banner", exc_info=True)
     await message.reply_text(caption, parse_mode=ParseMode.HTML, reply_markup=markup)
 
@@ -2451,13 +2454,7 @@ async def _menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     await query.answer()
     rich = {
-        "m:profile": _send_profile,
         "m:travel": travel_command,
-        "m:guild": guild,
-        "m:market": market,
-        "m:raid": raid,
-        "m:tournament": tournament,
-        "m:daily": daily,
         "m:explore": explore_command,
         "m:hunt": hunt,
     }
