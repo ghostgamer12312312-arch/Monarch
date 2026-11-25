@@ -534,11 +534,28 @@ async def npc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines.extend(
         [
             "",
+            "✦ <b>WORLD BOSSES</b>",
+            *[f"👑 {boss['name']} — <i>{boss['description']}</i>" for boss in WORLD_BOSSES],
+            "",
             f"Hunt cost: {HUNT_ENERGY_COST[dungeon_id]} energy",
             "Use /hunt to preview a target, then tap Battle or Flee.",
         ]
     )
-    await _reply_visual(update, f"battle_{dungeon_id}", "\n".join(lines))
+    await _reply_visual(
+        update,
+        f"battle_{dungeon_id}",
+        "\n".join(lines),
+        markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🌸 Hunt", callback_data="m:hunt"),
+                    InlineKeyboardButton("👹 World Boss", callback_data="m:raid"),
+                ],
+                [InlineKeyboardButton("👑 Boss Gallery", callback_data="cr:bosses")],
+            ]
+        ),
+        parse_mode="HTML",
+    )
 
 
 def _profile_text(profile: dict) -> str:
@@ -554,7 +571,8 @@ def _profile_text(profile: dict) -> str:
         f"⚔️ <b>{escape(str(profile['class_name']))}</b> · <i>{escape(str(class_info.get('skill', 'Awakening skill')))}</i>\n"
         f"❤️ HP <b>{profile['base_hp']}</b>   🗡 ATK <b>{profile['attack']}</b>   🔷 Mana <b>{profile['max_mana']}</b>\n"
         f"🪙 Coins <b>{profile['coins']:,}</b>   🔥 Essence <b>{profile['essence']:,}</b>\n"
-        f"⚡ Energy <b>{profile['energy']}/{profile['max_energy']}</b>\n\n"
+        f"🏦 Bank <b>{profile['bank']:,}</b>   ⚡ Energy <b>{profile['energy']}/{profile['max_energy']}</b>\n"
+        f"👑 Collection <b>{profile['characters']}</b>/{profile['character_total']}\n\n"
         f"🐾 Echo ally: <b>{escape(str(profile['companion_name']))}</b>\n"
         f"🏰 Guild: <b>{escape(str(guild))}</b>"
     )
@@ -1827,9 +1845,8 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         lines.append("No entries yet.")
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, row in enumerate(rows, 1):
-        lines.append(
-            f"{medals.get(i, f'{i}.')} {row['name']} — " + templates[category].format(**row)
-        )
+        marker = "👑" if i == 1 else medals.get(i, f"{i}.")
+        lines.append(f"{marker} {row['name']} — " + templates[category].format(**row))
     lines.extend(
         [
             "",
@@ -3042,6 +3059,12 @@ COMMANDS = {
     "gacha": gacha_command,
     "bank": bank_command,
     "crown": crown_command,
+    "skill": skills_command,
+    "summon": gacha_command,
+    "vault": bank_command,
+    "collection": crown_command,
+    "worldboss": raid,
+    "wb": raid,
     "admin": admin_command,
     "adventure": hunt,
     "flee": flee,

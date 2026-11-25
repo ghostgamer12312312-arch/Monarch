@@ -365,6 +365,9 @@ class GameService:
             arena = con.execute(
                 "SELECT rating,wins,losses FROM arena_ratings WHERE player_id=?", (player_id,)
             ).fetchone()
+            characters = con.execute(
+                "SELECT COUNT(*) FROM player_characters WHERE player_id=?", (player_id,)
+            ).fetchone()[0]
             return {
                 **dict(p),
                 "class_name": class_name,
@@ -377,6 +380,9 @@ class GameService:
                 "arena_rating": int(arena["rating"]) if arena else 1000,
                 "wins": int(arena["wins"]) if arena else 0,
                 "losses": int(arena["losses"]) if arena else 0,
+                "characters": int(characters),
+                "character_total": len(GACHA_CHARACTERS),
+                "bank": int(p["bank_coins"]),
             }
 
     def companions(self, player_id: int) -> list[dict]:
