@@ -90,3 +90,92 @@ def test_battle_markup_offers_skill_picker_not_guard():
     assert "🛡️ Guard" not in labels
     assert "🌀 Skills" in labels
     assert "b:abc:1:skills" in callbacks
+
+
+class _FakeQuery:
+    def __init__(self, data):
+        self.data = data
+        self.from_user = __import__("types").SimpleNamespace(id=101)
+        self.message = None
+        self.answers = []
+        self.edits = []
+
+    async def answer(self, text=None, **kwargs):
+        self.answers.append({"text": text, **kwargs})
+
+    async def edit_message_text(self, text, **kwargs):
+        self.edits.append(text)
+
+    async def edit_message_caption(self, caption=None, **kwargs):
+        self.edits.append(caption or "")
+
+
+class _FakeUpdate:
+    def __init__(self, data):
+        self.update_id = 1
+        self.effective_user = _FakeQuery(data).from_user
+        self.callback_query = _FakeQuery(data)
+        self.effective_message = None
+
+
+def _features_context(service):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "game": service,
+                "settings": SimpleNamespace(admin_ids=frozenset()),
+            }
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_gacha_callback_pull_and_collection(game):
+    service, _, _ = game
+    register(service)
+    fund(service, essence=500)
+    update = _FakeUpdate("ga:pull:1")
+    await handlers.features_callback(update, _features_context(service))
+    assert update.callback_query.edits and "SUMMON" in update.callback_query.edits[0]
+    update = _FakeUpdate("ga:collection")
+    await handlers.features_callback(update, _features_context(service))
+    assert "COLLECTION" in update.callback_query.edits[0]
+
+
+@pytest.mark.asyncio
+async def test_bank_callback_deposit(game):
+    service, _, _ = game
+    register(service)
+    fund(service, coins=1000)
+    update = _FakeUpdate("bk:dep:100")
+    await handlers.features_callback(update, _features_context(service))
+    assert "MONARCH BANK" in update.callback_query.edits[0]
+    assert service.bank_status(101)["bank"] == 100
+
+
+@pytest.mark.asyncio
+async def test_shop_and_skill_callbacks(game):
+    service, _, _ = game
+    register(service)
+    fund(service, coins=2000)
+    update = _FakeUpdate("s:energy_shard:1")
+    await handlers.features_callback(update, _features_context(service))
+    assert "PURCHASE COMPLETE" in update.callback_query.edits[0]
+    update = _FakeUpdate("sk:ember_slash")
+    await handlers.features_callback(update, _features_context(service))
+    assert "SKILL LEARNED" in update.callback_query.edits[0]
+    assert any(row["id"] == "ember_slash" and row["owned"] for row in service.skills(101))
+
+
+@pytest.mark.asyncio
+async def test_world_boss_callback_attack_and_rank(game):
+    service, _, _ = game
+    register(service)
+    update = _FakeUpdate("rb:attack")
+    await handlers.features_callback(update, _features_context(service))
+    assert "STRIKE DELIVERED" in update.callback_query.edits[0]
+    update = _FakeUpdate("rb:rank")
+    await handlers.features_callback(update, _features_context(service))
+    assert "DAMAGE RANK" in update.callback_query.edits[0]

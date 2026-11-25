@@ -2942,13 +2942,14 @@ async def features_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             result = await asyncio.to_thread(
                 context.application.bot_data["market"].buy, query.from_user.id, int(rest)
             )
+            item_name = str(result.get("item") or result.get("item_name") or "item")
             await query.answer(
-                f"Bought {result['quantity']}× {result['item_name']}", show_alert=False
+                f"Bought {result['quantity']}× {item_name}", show_alert=False
             )
             await _cb_edit(
                 query,
                 f"✅ <b>MARKET PURCHASE</b>\n{RULE}\n\n"
-                f"📦 {result['quantity']}× {escape(str(result['item_name']))}\n"
+                f"📦 {result['quantity']}× {escape(item_name)}\n"
                 f"🪙 −{result['price']:,} coins\n\n{RULE}",
                 InlineKeyboardMarkup(
                     [[InlineKeyboardButton("🏪 Market", callback_data="m:market"), _hub_button()]]
