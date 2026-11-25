@@ -1,6 +1,6 @@
 [project]
 name = "monarch-telegram-rpg"
-version = "0.1.0"
+version = "0.2.0"
 description = "An original hunter-and-rift turn-based Telegram RPG."
 requires-python = ">=3.11"
 

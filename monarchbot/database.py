@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class Database:
@@ -71,6 +71,13 @@ class Database:
                 player_columns = {row["name"] for row in con.execute("PRAGMA table_info(players)").fetchall()}
                 if player_columns and "class_changes" not in player_columns:
                     con.execute("ALTER TABLE players ADD COLUMN class_changes INTEGER NOT NULL DEFAULT 0")
+                if player_columns and "bank_coins" not in player_columns:
+                    con.execute("ALTER TABLE players ADD COLUMN bank_coins INTEGER NOT NULL DEFAULT 0")
+                if player_columns and "gacha_pity" not in player_columns:
+                    con.execute("ALTER TABLE players ADD COLUMN gacha_pity INTEGER NOT NULL DEFAULT 0")
+                guild_columns = {row["name"] for row in con.execute("PRAGMA table_info(guilds)").fetchall()}
+                if guild_columns and "coins" not in guild_columns:
+                    con.execute("ALTER TABLE guilds ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
             con.executescript(
                 """
                 BEGIN IMMEDIATE;
@@ -92,6 +99,8 @@ class Database:
                     class_locked INTEGER NOT NULL DEFAULT 0 CHECK(class_locked IN (0,1)),
                     class_changes INTEGER NOT NULL DEFAULT 0 CHECK(class_changes >= 0),
                     equipped_companion TEXT NOT NULL DEFAULT 'ash_hound',
+                    bank_coins INTEGER NOT NULL DEFAULT 0 CHECK(bank_coins >= 0),
+                    gacha_pity INTEGER NOT NULL DEFAULT 0 CHECK(gacha_pity >= 0),
                     daily_date TEXT,
                     daily_streak INTEGER NOT NULL DEFAULT 0 CHECK(daily_streak >= 0),
                     weekly_date TEXT,
@@ -185,6 +194,7 @@ class Database:
                     leader_id INTEGER NOT NULL REFERENCES players(telegram_id),
                     level INTEGER NOT NULL DEFAULT 1 CHECK(level >= 1),
                     xp INTEGER NOT NULL DEFAULT 0 CHECK(xp >= 0),
+                    coins INTEGER NOT NULL DEFAULT 0 CHECK(coins >= 0),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS guild_members (
@@ -308,9 +318,28 @@ class Database:
                     member_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
                     PRIMARY KEY(player_id, slot), UNIQUE(player_id, member_id)
                 );
+                CREATE TABLE IF NOT EXISTS player_skills (
+                    player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    skill_id TEXT NOT NULL,
+                    learned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(player_id, skill_id)
+                );
+                CREATE TABLE IF NOT EXISTS player_characters (
+                    player_id INTEGER NOT NULL REFERENCES players(telegram_id) ON DELETE CASCADE,
+                    character_id TEXT NOT NULL,
+                    copies INTEGER NOT NULL DEFAULT 1 CHECK(copies >= 1),
+                    first_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(player_id, character_id)
+                );
+                CREATE TABLE IF NOT EXISTS art_uploads (
+                    art_key TEXT PRIMARY KEY,
+                    file_id TEXT NOT NULL,
+                    uploaded_by INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 INSERT OR IGNORE INTO raid_state(id,name,hp,max_hp,cycle)
-                    VALUES(1,'The Rift Sovereign',250000,250000,1);
-                INSERT INTO schema_meta(key,value) VALUES('schema_version','4')
+                    VALUES(1,'Ant King',250000,250000,1);
+                INSERT INTO schema_meta(key,value) VALUES('schema_version','5')
                     ON CONFLICT(key) DO UPDATE SET value=excluded.value;
                 COMMIT;
                 """

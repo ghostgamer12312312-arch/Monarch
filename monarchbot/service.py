@@ -29,7 +29,21 @@ from .catalog import (
     RAID_ENERGY_COST,
     SKILL_COOLDOWN_TURNS,
     SKILL_MANA_COST,
-    HUNT_ENERGY_COST,)
+    HUNT_ENERGY_COST,
+    BANK_MAX_TRANSFER,
+    BANK_MIN_TRANSFER,
+    DEFAULT_SKILL,
+    GACHA_BONUS,
+    GACHA_CHARACTERS,
+    GACHA_COST,
+    GACHA_PITY,
+    GACHA_RANKS,
+    GACHA_TEN_COST,
+    GACHA_WEIGHTS,
+    GUILD_UPGRADE_BASE,
+    SKILLS,
+    WORLD_BOSSES,
+)
 from .database import Database
 
 
@@ -192,7 +206,23 @@ class GameService:
                 companion_level = int(owned["level"])
                 hp += int(companion["hp"]) + (companion_level - 1) * 3
                 attack += int(companion["attack"]) + (companion_level - 1)
-        return hp, attack, mana, class_name
+        char_hp, char_atk = self._character_bonus(con, int(player["telegram_id"]))
+        return hp + char_hp, attack + char_atk, mana, class_name
+
+    @staticmethod
+    def _character_bonus(con, player_id: int) -> tuple[int, int]:
+        rows = con.execute(
+            "SELECT character_id FROM player_characters WHERE player_id=?", (player_id,)
+        ).fetchall()
+        hp = atk = 0
+        for row in rows:
+            char = GACHA_CHARACTERS.get(row["character_id"])
+            if char is None:
+                continue
+            bonus_hp, bonus_atk = GACHA_BONUS[char["rank"]]
+            hp += bonus_hp
+            atk += bonus_atk
+        return hp, atk
 
     @staticmethod
     def _add_coins(con, player_id: int, amount: int) -> None:
@@ -261,6 +291,10 @@ class GameService:
                 con.execute(
                     "INSERT INTO player_companions(player_id,companion_id) VALUES(?, 'ash_hound')",
                     (player_id,),
+                )
+                con.execute(
+                    "INSERT INTO player_skills(player_id,skill_id) VALUES(?,?)",
+                    (player_id, DEFAULT_SKILL),
                 )
             return dict(
                 con.execute("SELECT * FROM players WHERE telegram_id = ?", (player_id,)).fetchone()
@@ -764,7 +798,9 @@ class GameService:
             return self._with_player(self._battle_dict(row), self._require_player(con, player_id))
 
     def battle_action(self, player_id: int, battle_id: str, expected_turn: int, action: str) -> dict:
-        if action not in {"attack", "guard", "dodge", "skill", "potion", "mana", "flee"}:
+        if action not in {"attack", "guard", "dodge", "skill", "potion", "mana", "flee"} and not action.startswith(
+            "skill:"
+        ):
             raise GameError("Unknown battle action.")
         now = int(self.epoch())
         with self.db.transaction() as con:
@@ -834,6 +870,42 @@ class GameService:
                 elif action == "dodge":
                     evasive = True
                     logs.append("You prepare to evade the next attack.")
+                elif action.startswith("skill:"):
+                    skill_id = action.split(":", 1)[1]
+                    skill = SKILLS.get(skill_id)
+                    if skill is None:
+                        raise GameError("That skill does not exist.")
+                    owned = con.execute(
+                        "SELECT 1 FROM player_skills WHERE player_id=? AND skill_id=?",
+                        (player_id, skill_id),
+                    ).fetchone()
+                    if owned is None and skill_id != DEFAULT_SKILL:
+                        raise GameError("You do not own that skill. Visit /skills.")
+                    cost = int(skill["mana"])
+                    if mana < cost:
+                        raise GameError(f"You need {cost} mana to use {skill['name']}.")
+                    damage = max(
+                        1, int(attack * float(skill["multiplier"]) * self.rng.uniform(0.9, 1.1))
+                    )
+                    enemy_hp = max(0, enemy_hp - damage)
+                    mana -= cost
+                    logs.append(f"{skill['name']} hits for {damage} damage.")
+                    effect = str(skill["effect"])
+                    if effect == "burn":
+                        enemy_eff["burn"] = max(int(enemy_eff.get("burn") or 0), 3)
+                        logs.append("The enemy is set ablaze for 3 turns.")
+                    elif effect == "poison":
+                        enemy_eff["poison"] = max(int(enemy_eff.get("poison") or 0), 3)
+                        logs.append("Venom courses through the enemy for 3 turns.")
+                    elif effect == "stun":
+                        enemy_eff["stun"] = max(int(enemy_eff.get("stun") or 0), 1)
+                        logs.append("The enemy is stunned.")
+                    elif effect == "lifesteal":
+                        healed = min(damage // 2, pmax - player_hp)
+                        if healed > 0:
+                            player_hp += healed
+                            logs.append(f"You drain {healed} HP.")
+                    self._increment_quest(con, player_id, "use_skill", 1)
                 elif action == "skill":
                     if skill_cd > 0:
                         raise GameError(f"Your awakening skill recharges in {skill_cd} turn(s).")
@@ -1141,7 +1213,7 @@ class GameService:
         with self.db.reader() as con:
             self._require_player(con, player_id)
             membership = con.execute(
-                "SELECT g.id,g.name,g.level,g.xp,g.leader_id FROM guild_members m JOIN guilds g ON g.id=m.guild_id WHERE m.player_id=?",
+                "SELECT g.id,g.name,g.level,g.xp,g.leader_id,g.coins FROM guild_members m JOIN guilds g ON g.id=m.guild_id WHERE m.player_id=?",
                 (player_id,),
             ).fetchone()
             if membership is None:
@@ -1150,7 +1222,7 @@ class GameService:
                 ).fetchall()
                 return {"guild": None, "guilds": [dict(row) for row in rows]}
             members = con.execute(
-                "SELECT p.display_name,m.player_id FROM guild_members m JOIN players p ON p.telegram_id=m.player_id WHERE m.guild_id=? ORDER BY (m.player_id=?) DESC,p.display_name COLLATE NOCASE LIMIT 30",
+                "SELECT p.display_name,m.player_id,COALESCE(r.role,'member') AS role FROM guild_members m JOIN players p ON p.telegram_id=m.player_id LEFT JOIN guild_roles r ON r.guild_id=m.guild_id AND r.player_id=m.player_id WHERE m.guild_id=? ORDER BY (m.player_id=?) DESC,p.display_name COLLATE NOCASE LIMIT 30",
                 (membership["id"], membership["leader_id"]),
             ).fetchall()
             return {"guild": dict(membership), "members": [dict(row) for row in members]}
@@ -1277,6 +1349,7 @@ class GameService:
             if membership is None:
                 raise GameError("Join a guild before donating.")
             con.execute("UPDATE players SET coins=coins-? WHERE telegram_id=?", (amount, player_id))
+            con.execute("UPDATE guilds SET coins=coins+? WHERE id=?", (amount, membership["id"]))
             gained = self._guild_xp(con, player_id, amount // 10)
             guild = con.execute("SELECT level,xp FROM guilds WHERE id=?", (membership["id"],)).fetchone()
             return {
@@ -1294,7 +1367,8 @@ class GameService:
             top = con.execute(
                 "SELECT p.display_name,c.total_damage,c.hits FROM raid_contributions c JOIN players p ON p.telegram_id=c.player_id ORDER BY c.total_damage DESC LIMIT 5"
             ).fetchall()
-            return {"boss": dict(boss), "top": [dict(row) for row in top]}
+            meta = WORLD_BOSSES[(int(boss["cycle"]) - 1) % len(WORLD_BOSSES)]
+            return {"boss": {**dict(boss), "art": meta["art"], "description": meta["description"]}, "top": [dict(row) for row in top]}
 
     def raid_attack(self, player_id: int) -> dict:
         now = int(self.epoch())
@@ -1327,8 +1401,11 @@ class GameService:
             reward = 15 + effective // 50 + (250 if defeated else 0)
             self._add_coins(con, player_id, reward)
             if defeated:
+                next_meta = WORLD_BOSSES[(int(boss["cycle"])) % len(WORLD_BOSSES)]
+                next_hp = int(next_meta["base_hp"])
                 con.execute(
-                    "UPDATE raid_state SET hp=max_hp,cycle=cycle+1,updated_at=CURRENT_TIMESTAMP WHERE id=1"
+                    "UPDATE raid_state SET name=?,hp=?,max_hp=?,cycle=cycle+1,updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                    (next_meta["name"], next_hp, next_hp),
                 )
                 con.execute("DELETE FROM raid_contributions")
             else:
@@ -1344,6 +1421,7 @@ class GameService:
                 "reward": reward,
                 "defeated": defeated,
                 "guild_levels": guild_levels,
+                "art": WORLD_BOSSES[(int(boss["cycle"]) - 1) % len(WORLD_BOSSES)]["art"],
             }
 
     def _tournament_score(self, con, player_id: int, score: int) -> None:
@@ -1355,6 +1433,205 @@ class GameService:
     def _tournament_week(self) -> str:
         iso = self.clock().astimezone(UTC).date().isocalendar()
         return f"{iso.year}-W{iso.week:02d}"
+
+    def skill_shop(self) -> list[dict]:
+        return [{"id": key, **value} for key, value in SKILLS.items()]
+
+    def skills(self, player_id: int) -> list[dict]:
+        with self.db.reader() as con:
+            self._require_player(con, player_id)
+            owned = {
+                row["skill_id"]
+                for row in con.execute(
+                    "SELECT skill_id FROM player_skills WHERE player_id=?", (player_id,)
+                ).fetchall()
+            }
+            owned.add(DEFAULT_SKILL)
+            return [
+                {"id": key, **value, "owned": key in owned} for key, value in SKILLS.items()
+            ]
+
+    def learn_skill(self, player_id: int, skill_id: str) -> dict:
+        skill = SKILLS.get(skill_id)
+        if skill is None:
+            raise GameError("Unknown skill. Check /skills.")
+        price = int(skill["price"])
+        with self.db.transaction() as con:
+            p = self._require_player(con, player_id)
+            owned = con.execute(
+                "SELECT 1 FROM player_skills WHERE player_id=? AND skill_id=?", (player_id, skill_id)
+            ).fetchone()
+            if owned is not None or skill_id == DEFAULT_SKILL:
+                raise GameError("You already own that skill.")
+            if int(p["coins"]) < price:
+                raise GameError(f"You need {price:,} coins to learn {skill['name']}.")
+            con.execute("UPDATE players SET coins=coins-? WHERE telegram_id=?", (price, player_id))
+            con.execute(
+                "INSERT INTO player_skills(player_id,skill_id) VALUES(?,?)", (player_id, skill_id)
+            )
+            return {"name": skill["name"], "price": price, "rank": skill["rank"]}
+
+    def _roll_rank(self, minimum: str | None = None) -> str:
+        ranks = [rank for rank in GACHA_RANKS if minimum is None or GACHA_RANKS.index(rank) >= GACHA_RANKS.index(minimum)]
+        weights = [GACHA_WEIGHTS[rank] for rank in ranks]
+        return self.rng.choices(ranks, weights=weights, k=1)[0]
+
+    def gacha_pull(self, player_id: int, count: int = 1) -> dict:
+        if count not in (1, 10):
+            raise GameError("You can summon 1 or 10 characters at a time.")
+        cost = GACHA_COST if count == 1 else GACHA_TEN_COST
+        with self.db.transaction() as con:
+            p = self._require_player(con, player_id)
+            if int(p["essence"]) < cost:
+                raise GameError(f"You need {cost} essence for this summon.")
+            con.execute("UPDATE players SET essence=essence-? WHERE telegram_id=?", (cost, player_id))
+            pity = int(p["gacha_pity"])
+            results = []
+            for _ in range(count):
+                pity += 1
+                if pity >= GACHA_PITY:
+                    rank = self._roll_rank("S")
+                    pity = 0
+                else:
+                    rank = self._roll_rank()
+                pool = [cid for cid, value in GACHA_CHARACTERS.items() if value["rank"] == rank]
+                character_id = self.rng.choice(pool)
+                character = GACHA_CHARACTERS[character_id]
+                con.execute(
+                    """INSERT INTO player_characters(player_id,character_id,copies) VALUES(?,?,1)
+                       ON CONFLICT(player_id,character_id) DO UPDATE SET copies=copies+1""",
+                    (player_id, character_id),
+                )
+                copies = con.execute(
+                    "SELECT copies FROM player_characters WHERE player_id=? AND character_id=?",
+                    (player_id, character_id),
+                ).fetchone()["copies"]
+                results.append(
+                    {
+                        "id": character_id,
+                        "name": character["name"],
+                        "rank": character["rank"],
+                        "title": character["title"],
+                        "new": int(copies) == 1,
+                    }
+                )
+                if rank in {"SR", "SP"}:
+                    pity = 0
+            con.execute("UPDATE players SET gacha_pity=? WHERE telegram_id=?", (pity, player_id))
+            bonus_hp, bonus_atk = self._character_bonus(con, player_id)
+            return {
+                "results": results,
+                "cost": cost,
+                "pity": pity,
+                "essence": int(p["essence"]) - cost,
+                "bonus_hp": bonus_hp,
+                "bonus_atk": bonus_atk,
+            }
+
+    def gacha_collection(self, player_id: int) -> dict:
+        with self.db.reader() as con:
+            p = self._require_player(con, player_id)
+            rows = con.execute(
+                "SELECT character_id,copies FROM player_characters WHERE player_id=?", (player_id,)
+            ).fetchall()
+            owned = {row["character_id"]: int(row["copies"]) for row in rows}
+            by_rank = {rank: [] for rank in GACHA_RANKS}
+            for character_id, character in GACHA_CHARACTERS.items():
+                if character_id in owned:
+                    by_rank[character["rank"]].append(
+                        {
+                            "id": character_id,
+                            "name": character["name"],
+                            "title": character["title"],
+                            "copies": owned[character_id],
+                        }
+                    )
+            bonus_hp, bonus_atk = self._character_bonus(con, player_id)
+            return {
+                "by_rank": by_rank,
+                "owned": len(owned),
+                "total": len(GACHA_CHARACTERS),
+                "bonus_hp": bonus_hp,
+                "bonus_atk": bonus_atk,
+                "pity": int(p["gacha_pity"]),
+                "essence": int(p["essence"]),
+            }
+
+    def bank_status(self, player_id: int) -> dict:
+        with self.db.reader() as con:
+            p = self._require_player(con, player_id)
+            return {
+                "coins": int(p["coins"]),
+                "bank": int(p["bank_coins"]),
+                "total": int(p["coins"]) + int(p["bank_coins"]),
+            }
+
+    def bank_deposit(self, player_id: int, amount: int) -> dict:
+        if not BANK_MIN_TRANSFER <= amount <= BANK_MAX_TRANSFER:
+            raise GameError(
+                f"Deposit between {BANK_MIN_TRANSFER:,} and {BANK_MAX_TRANSFER:,} coins."
+            )
+        with self.db.transaction() as con:
+            p = self._require_player(con, player_id)
+            if int(p["coins"]) < amount:
+                raise GameError("You do not have enough coins to deposit.")
+            con.execute(
+                "UPDATE players SET coins=coins-?,bank_coins=bank_coins+? WHERE telegram_id=?",
+                (amount, amount, player_id),
+            )
+            return {"amount": amount, "coins": int(p["coins"]) - amount, "bank": int(p["bank_coins"]) + amount}
+
+    def bank_withdraw(self, player_id: int, amount: int) -> dict:
+        if not BANK_MIN_TRANSFER <= amount <= BANK_MAX_TRANSFER:
+            raise GameError(
+                f"Withdraw between {BANK_MIN_TRANSFER:,} and {BANK_MAX_TRANSFER:,} coins."
+            )
+        with self.db.transaction() as con:
+            p = self._require_player(con, player_id)
+            if int(p["bank_coins"]) < amount:
+                raise GameError("You do not have that many coins in the bank.")
+            con.execute(
+                "UPDATE players SET coins=coins+?,bank_coins=bank_coins-? WHERE telegram_id=?",
+                (amount, amount, player_id),
+            )
+            return {"amount": amount, "coins": int(p["coins"]) + amount, "bank": int(p["bank_coins"]) - amount}
+
+    def guild_treasury(self, player_id: int) -> dict:
+        with self.db.reader() as con:
+            self._require_player(con, player_id)
+            row = con.execute(
+                "SELECT g.id,g.name,g.level,g.xp,g.coins,COALESCE(r.role,'member') AS role FROM guild_members m JOIN guilds g ON g.id=m.guild_id LEFT JOIN guild_roles r ON r.guild_id=g.id AND r.player_id=m.player_id WHERE m.player_id=?",
+                (player_id,),
+            ).fetchone()
+            if row is None:
+                raise GameError("Join a guild first.")
+            members = con.execute(
+                "SELECT COUNT(*) FROM guild_members WHERE guild_id=?", (row["id"],)
+            ).fetchone()[0]
+            return {
+                **dict(row),
+                "members": int(members),
+                "upgrade_cost": GUILD_UPGRADE_BASE * int(row["level"]),
+            }
+
+    def guild_upgrade(self, player_id: int) -> dict:
+        with self.db.transaction() as con:
+            self._require_player(con, player_id)
+            row = con.execute(
+                "SELECT g.id,g.name,g.level,g.coins,COALESCE(r.role,'member') AS role FROM guild_members m JOIN guilds g ON g.id=m.guild_id LEFT JOIN guild_roles r ON r.guild_id=g.id AND r.player_id=m.player_id WHERE m.player_id=?",
+                (player_id,),
+            ).fetchone()
+            if row is None:
+                raise GameError("Join a guild first.")
+            if str(row["role"]) != "leader":
+                raise GameError("Only the guild leader can upgrade the guild.")
+            cost = GUILD_UPGRADE_BASE * int(row["level"])
+            if int(row["coins"]) < cost:
+                raise GameError(f"Your guild treasury needs {cost:,} coins for this upgrade.")
+            con.execute(
+                "UPDATE guilds SET coins=coins-?,level=level+1 WHERE id=?", (cost, row["id"])
+            )
+            return {"name": row["name"], "level": int(row["level"]) + 1, "cost": cost}
 
     def admin_stats(self) -> dict:
         with self.db.reader() as con:

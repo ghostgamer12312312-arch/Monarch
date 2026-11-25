@@ -76,7 +76,8 @@ async def test_post_init_publishes_commands_and_profile_metadata(game):
     bot.set_my_description.assert_awaited_once_with(handlers.BOT_DESCRIPTION)
     command_names = [command.command for command in bot.set_my_commands.await_args.args[0]]
     assert "about" in command_names
-    assert "economy_history" in command_names
+    assert "gacha" in command_names
+    assert "economy_history" not in command_names
 
 
 @pytest.mark.asyncio

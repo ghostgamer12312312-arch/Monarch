@@ -20,16 +20,27 @@ from telegram.ext import (
 )
 
 from .catalog import (
+    BANK_MIN_TRANSFER,
     CLASS_CRIT,
     CLASS_DODGE,
     CLASSES,
     COMPANION_EXTRACT_COST,
     COMPANIONS,
+    DEFAULT_SKILL,
     DUNGEONS,
     ENEMIES,
+    GACHA_CHARACTERS,
+    GACHA_COST,
+    GACHA_PITY,
+    GACHA_RANKS,
+    GACHA_TEN_COST,
+    GACHA_WEIGHTS,
+    GUILD_UPGRADE_BASE,
     HUNT_ENERGY_COST,
     ITEMS,
     REGIONS,
+    SKILLS,
+    WORLD_BOSSES,
 )
 from .config import Settings
 from .marketplace import MarketplaceService
@@ -202,33 +213,44 @@ def community_links(settings: Settings | None) -> list[InlineKeyboardButton]:
 def main_menu(settings: Settings | None = None) -> InlineKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton("Profile", callback_data="m:profile"),
-            InlineKeyboardButton("Dungeons", callback_data="m:dungeons"),
+            InlineKeyboardButton("👤 Profile", callback_data="m:profile"),
+            InlineKeyboardButton("🌸 Hunt", callback_data="m:hunt"),
         ],
         [
-            InlineKeyboardButton("Daily Reward", callback_data="m:daily"),
-            InlineKeyboardButton("Inventory", callback_data="m:inventory"),
+            InlineKeyboardButton("⚔️ Dungeons", callback_data="m:dungeons"),
+            InlineKeyboardButton("🌀 Skills", callback_data="m:skills"),
         ],
         [
-            InlineKeyboardButton("Guild", callback_data="m:guild"),
-            InlineKeyboardButton("World Boss", callback_data="m:raid"),
+            InlineKeyboardButton("✨ Gacha", callback_data="m:gacha"),
+            InlineKeyboardButton("🎒 Inventory", callback_data="m:inventory"),
         ],
         [
-            InlineKeyboardButton("Arena", callback_data="m:tournament"),
-            InlineKeyboardButton("Market", callback_data="m:market"),
-        ],
-        [InlineKeyboardButton("Codex", callback_data="m:codex")],
-        [
-            InlineKeyboardButton("⚔️ Hunt", callback_data="m:hunt"),
-            InlineKeyboardButton("Explore", callback_data="m:explore"),
+            InlineKeyboardButton("🛒 Shop", callback_data="m:shop"),
+            InlineKeyboardButton("🏪 Market", callback_data="m:market"),
         ],
         [
-            InlineKeyboardButton("Echo Companions", callback_data="m:companions"),
-            InlineKeyboardButton("Travel", callback_data="m:travel"),
+            InlineKeyboardButton("📜 Quests", callback_data="m:quests"),
+            InlineKeyboardButton("🎁 Daily", callback_data="m:daily"),
         ],
         [
-            InlineKeyboardButton("About", callback_data="m:about"),
-            InlineKeyboardButton("Help", callback_data="m:help"),
+            InlineKeyboardButton("🏰 Guild", callback_data="m:guild"),
+            InlineKeyboardButton("👹 World Boss", callback_data="m:raid"),
+        ],
+        [
+            InlineKeyboardButton("🏦 Bank", callback_data="m:bank"),
+            InlineKeyboardButton("👑 Crown", callback_data="m:crown"),
+        ],
+        [
+            InlineKeyboardButton("🐾 Companions", callback_data="m:companions"),
+            InlineKeyboardButton("🏆 Arena", callback_data="m:tournament"),
+        ],
+        [
+            InlineKeyboardButton("📊 Leaderboard", callback_data="m:leaderboard"),
+            InlineKeyboardButton("🌍 Travel", callback_data="m:travel"),
+        ],
+        [
+            InlineKeyboardButton("ℹ️ About", callback_data="m:about"),
+            InlineKeyboardButton("📖 Help", callback_data="m:help"),
         ],
     ]
     link_buttons = community_links(settings)
@@ -556,24 +578,20 @@ def _inventory_text(rows: list[dict]) -> str:
 
 def _battle_markup(battle: dict) -> InlineKeyboardMarkup:
     bid, turn = battle["id"], battle["turn"]
-    state = (battle.get("result") or {}).get("state") or {}
-    cooldown = int(state.get("skill_cd") or 0)
-    skill_label = f"✨ Skill ({cooldown})" if cooldown else "✨ Awakening"
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton("⚔️ Strike", callback_data=f"b:{bid}:{turn}:attack"),
-                InlineKeyboardButton("🛡️ Guard", callback_data=f"b:{bid}:{turn}:guard"),
+                InlineKeyboardButton("🌀 Skills", callback_data=f"b:{bid}:{turn}:skills"),
             ],
             [
                 InlineKeyboardButton("💨 Dodge", callback_data=f"b:{bid}:{turn}:dodge"),
-                InlineKeyboardButton(skill_label, callback_data=f"b:{bid}:{turn}:skill"),
+                InlineKeyboardButton("🧪 Tonic", callback_data=f"b:{bid}:{turn}:potion"),
             ],
             [
-                InlineKeyboardButton("🧪 Tonic", callback_data=f"b:{bid}:{turn}:potion"),
                 InlineKeyboardButton("🔷 Mana Vial", callback_data=f"b:{bid}:{turn}:mana"),
+                InlineKeyboardButton("🏃 Run", callback_data=f"b:{bid}:{turn}:flee"),
             ],
-            [InlineKeyboardButton("🏃 Run", callback_data=f"b:{bid}:{turn}:flee")],
         ]
     )
 
@@ -713,26 +731,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, service.register, user.id, username, display_name)
     if result:
         _, created = result
+        hunter = escape(str(user.first_name or "Hunter"))
         greeting = (
             "╭─『 WELCOME TO MONARCH 』\n"
+            f"Hunter: {hunter}\n"
             "Your hunter file is ready.\n"
             f"╰{RULE}\n\n"
-            "🎁 Starter kit\n"
-            "• 2 × Healing Tonic\n"
-            "• Ash Hound echo\n\n"
-            "✦ FIRST STEPS\n"
-            "1️⃣ /class vanguard · assassin · arcanist\n"
-            "2️⃣ /hunt — preview an enemy, then Fight or Run\n"
-            "   Or enter a dungeon with /battle gate.\n"
-            "3️⃣ /daily — claim supplies and energy\n\n"
+            "🎁 Starter kit · 2× Healing Tonic · Ash Hound echo\n"
+            "🌀 Free skill · Quick Strike\n\n"
+            "✦ Awaken. Hunt. Ascend.\n"
+            "Everything lives in the buttons below.\n"
+            "✦ Start: /class vanguard · /battle gate · /daily\n\n"
             f"{RULE}\n"
-            "💡 /menu · /codex · /help"
+            "💡 /menu · /skills · /gacha · /help"
             if created
-            else "╭─『 WELCOME BACK 』\nYour hunter file is ready.\n"
+            else "╭─『 WELCOME BACK 』\n"
+            f"Hunter: {hunter}\n"
+            "Your hunter file is ready.\n"
             f"╰{RULE}\n\n"
-            "💡 /hunt to fight · /daily to claim\n"
+            "✦ Continue your climb.\n"
             f"{RULE}\n"
-            "Use /menu for the game hub."
+            "💡 /menu for the hunter hub."
         )
         await _reply_visual(
             update,
@@ -743,30 +762,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @_protected
-async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = (
+        "╭─『 MONARCH HELP 』\n"
+        f"{RULE}\n\n"
+        "⚔️ <b>HUNT</b> — /hunt · /battle · /explore · /travel\n"
+        "🌀 <b>GROW</b> — /class · /skills · /team · /codex\n"
+        "🎁 <b>REWARDS</b> — /daily · /quests · /profile\n"
+        "🏰 <b>SOCIAL</b> — /guild · /raid · /arena · /tournament\n"
+        "💰 <b>ECONOMY</b> — /shop · /market · /inventory · /bank\n"
+        "✨ <b>SUMMON</b> — /gacha · /crown · /companions\n"
+        "🏆 <b>RANKS</b> — /leaderboard\n\n"
+        f"{RULE}\n"
+        "💡 /menu · /links · /rules · /about"
+    )
     await update.effective_message.reply_text(
-        "╭─『 MONARCH COMMANDS 』\n" + RULE + "\n\n"
-        "/start — create your hunter file\n/about — learn what Monarch is\n/menu — open the interactive game hub\n/profile — stats and awakening class\n"
-        "/userid — show your user ID and current chat ID\n/query <message> — send a question or bug report to the admin team\n"
-        "/class [vanguard|assassin|arcanist] — awaken or respec (1 free, another at Lv 20)\n"
-        "/battle [gate|rift|abyss] — enter a turn-based dungeon\n/battle_status — recover your active battle screen\n"
-        "/travel — view regions and unlock levels\n/explore — spend energy to find coins, essence, or items\n"
-        "/stats [name] — combat stats or a class/companion lookup\n/data <name> — search classes, dungeons, items, companions\n"
-        "/nickname <name> — change your hunter name\n/bag — open your inventory\n/top — leaderboard alias\n"
-        "/myteam — manage your team\n/mycharacters — view echo companions\n/links — channel, group, and support links\n"
-        "/ping — check bot latency\n/ask <question> — ask the assistant about commands\n/rules — community rules\n"
-        "/achievements — track milestone unlocks\n"
-        "/hunt [gate|rift|abyss] — preview an enemy with a picture, then Battle or Flee\n"
-        "/npc [gate|rift|abyss] — list enemies in a region\n/flee — escape your active battle\n"
-        "/daily — claim daily coins and energy\n/quests — view daily objectives\n/quest_claim <id> — claim a quest\n"
-        "/daily_status — check today's claim and streak\n/weekly — claim a larger weekly reward\n/give <player_id> <amount> — send coins to another hunter\n/economy_history [limit] — view your recent economy events\n/codex [classes|dungeons|items|companions] — browse game content\n"
-        "/shop — view items\n/buy <item_id> [qty] — buy items\n/inventory — view items\n/use energy_shard — restore energy\n"
-        "/leaderboard [level|xp|coins|arena|wins|guild] — top hunters and guilds\n/guild — view or browse guilds\n/guild_create <name>\n/guild_join <id>\n/guild_leave\n/guild_disband\n/guild_donate <coins>\n/guild_promote <id>\n/guild_demote <id>\n/guild_kick <id>\n/guild_rename <name>\n"
-        "/companions — view your echo allies\n/extract — spend essence to summon an ally\n/equip <id|none> — change your companion\n"
-        "/raid — shared boss status\n/raid_attack — attack once per hour\n/tournament — weekly arena standings\n/tournament_join\n/tournament_claim\n"
-        "/market [page] — browse player listings\n/market_list <item> <qty> <price>\n/market_buy <id>\n/market_cancel <id>\n"
-        "/tournament_start\n/tournament_checkin <match_id>\n/tournament_matches"
-        "\n\n" + RULE + "\n💡 /menu · /ask <question> · /rules"
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🌸 Hunt", callback_data="m:hunt"),
+                    InlineKeyboardButton("🌀 Skills", callback_data="m:skills"),
+                ],
+                [
+                    InlineKeyboardButton("✨ Gacha", callback_data="m:gacha"),
+                    InlineKeyboardButton("🏦 Bank", callback_data="m:bank"),
+                ],
+                [
+                    InlineKeyboardButton("🏰 Guild", callback_data="m:guild"),
+                    InlineKeyboardButton("👹 World Boss", callback_data="m:raid"),
+                ],
+                [InlineKeyboardButton("🏠 Open Hub", callback_data="m:home")],
+            ]
+        ),
     )
 
 
@@ -1209,14 +1238,25 @@ async def choose_class(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, context.application.bot_data["game"].daily, _uid(update))
     if result:
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("📅 Weekly Reward", callback_data="d:weekly"),
+                    InlineKeyboardButton("📊 Status", callback_data="d:status"),
+                ],
+                [InlineKeyboardButton("🏠 Hub", callback_data="m:home")],
+            ]
+        )
         await _reply_visual(
             update,
             "daily",
-            f"🎁 DAILY SUPPLIES\n{RULE}\n\n"
-            f"🪙 +{result['coins']:,} coins\n"
-            f"⚡ +{result['energy_gained']} energy\n"
-            f"🔥 Streak {result['streak']} day(s)\n\n"
+            f"🎁 <b>DAILY SUPPLIES</b>\n{RULE}\n\n"
+            f"🪙 <b>+{result['coins']:,}</b> coins\n"
+            f"⚡ <b>+{result['energy_gained']}</b> energy\n"
+            f"🔥 Streak <b>{result['streak']}</b> day(s)\n\n"
             f"{RULE}\n💡 Return tomorrow to keep the streak alive.",
+            markup=markup,
+            parse_mode="HTML",
         )
 
 
@@ -1455,18 +1495,36 @@ async def team_power(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await _call(update, context.application.bot_data["game"].quests, _uid(update))
     if rows is not None:
-        lines = ["📜 DAILY OBJECTIVES", RULE, ""]
+        lines = ["📜 <b>DAILY OBJECTIVES</b>", RULE, ""]
+        buttons = []
         for quest in rows:
             done = int(quest["progress"]) >= int(quest["goal"])
-            status = "✅ claimed" if quest["claimed"] else ("🎁 ready" if done else "")
+            claimed = bool(quest["claimed"])
+            status = "✅ claimed" if claimed else ("🎁 ready" if done else "")
             lines.append(
-                f"{'✅' if quest['claimed'] else '•'} {quest['name']}\n"
-                f"   {_bar(int(quest['progress']), int(quest['goal']), 8)} {quest['progress']}/{quest['goal']}"
+                f"{'✅' if claimed else '•'} <b>{escape(str(quest['name']))}</b>\n"
+                f"   <code>{_bar(int(quest['progress']), int(quest['goal']), 8)}</code> {quest['progress']}/{quest['goal']}"
                 + (f" · {status}" if status else "")
-                + ("" if quest["claimed"] else f"\n   🪙 {quest['coins']} · ⭐ {quest['xp']} XP")
+                + ("" if claimed else f"\n   🪙 {quest['coins']} · ⭐ {quest['xp']} XP")
             )
-        lines.extend(["", RULE, "💡 /quest_claim <id>"])
-        await _reply_visual(update, "quests", "\n".join(lines))
+            if done and not claimed:
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🎁 Claim · {quest['name']}",
+                            callback_data=f"q:{quest['id']}",
+                        )
+                    ]
+                )
+        buttons.append([InlineKeyboardButton("🏠 Hub", callback_data="m:home")])
+        lines.extend(["", RULE, "💡 Claim completed objectives with the buttons below."])
+        await _reply_visual(
+            update,
+            "quests",
+            "\n".join(lines),
+            markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
 
 
 @_protected
@@ -1550,13 +1608,45 @@ async def battle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await _call(update, context.application.bot_data["game"].inventory, _uid(update))
     if rows is not None:
-        lines = ["🎒 INVENTORY", RULE, ""]
+        icons = {"healing_tonic": "🧪", "mana_vial": "🔷", "energy_shard": "⚡"}
+        lines = ["🎒 <b>INVENTORY</b>", RULE, ""]
+        buttons = []
         if rows:
-            lines.extend(f"• {x['name']} ×{x['quantity']}  ({x['item_id']})" for x in rows)
+            for row in rows:
+                item_id = str(row["item_id"])
+                price = int(ITEMS.get(item_id, {}).get("price", 0))
+                lines.append(
+                    f"{icons.get(item_id, '📦')} <b>{escape(str(row['name']))}</b> × <code>{row['quantity']}</code>\n"
+                    f"   <i>{escape(str(ITEMS.get(item_id, {}).get('description', 'Stored supply.')))}</i>"
+                )
+                if item_id == "energy_shard":
+                    buttons.append(
+                        [
+                            InlineKeyboardButton(
+                                "⚡ Use Energy Shard", callback_data="i:energy_shard"
+                            ),
+                            InlineKeyboardButton(
+                                f"🛒 Buy · {price}", callback_data=f"s:{item_id}:1"
+                            ),
+                        ]
+                    )
         else:
-            lines.append("Your bag is empty.")
-        lines.extend(["", RULE, "💡 /shop · /use energy_shard · /market"])
-        await _reply_visual(update, "inventory", "\n".join(lines))
+            lines.append("Your satchel is empty. Visit the shop to prepare.")
+        buttons.append(
+            [
+                InlineKeyboardButton("🛒 Shop", callback_data="m:shop"),
+                InlineKeyboardButton("🏪 Market", callback_data="m:market"),
+            ]
+        )
+        buttons.append([InlineKeyboardButton("🏠 Hub", callback_data="m:home")])
+        lines.extend(["", RULE, "💡 Battle supplies are used from the battle screen."])
+        await _reply_visual(
+            update,
+            "inventory",
+            "\n".join(lines),
+            markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
 
 @_protected
 async def economy_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1631,16 +1721,32 @@ async def equip_companion(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 @_protected
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = context.application.bot_data["game"].shop()
-    details = "\n".join(
-        f"• {x['name']} — {x['price']:,} coins\n  {x['description']}\n  /buy {x['id']}"
-        for x in rows
-    )
+    lines = ["🛒 <b>SUPPLY DEPOT</b>", RULE, ""]
+    buttons = []
+    icons = {"healing_tonic": "🧪", "mana_vial": "🔷", "energy_shard": "⚡"}
+    for item in rows:
+        lines.append(
+            f"{icons.get(item['id'], '📦')} <b>{escape(str(item['name']))}</b> — <b>{item['price']:,}</b> coins\n"
+            f"   <i>{escape(str(item['description']))}</i>"
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    f"Buy 1 · {item['name']}", callback_data=f"s:{item['id']}:1"
+                ),
+                InlineKeyboardButton(
+                    f"Buy 5 · {item['price'] * 5:,}", callback_data=f"s:{item['id']}:5"
+                ),
+            ]
+        )
+    buttons.append([InlineKeyboardButton("🏠 Hub", callback_data="m:home")])
+    lines.extend(["", RULE, "💡 Supplies are delivered to your inventory instantly."])
     await _reply_visual(
         update,
         "shop",
-        f"🛒 SUPPLY DEPOT\n{RULE}\n\nTonics, mana vials and energy shards.\n\n"
-        "Buy with /buy <item_id> [qty].",
-        details=f"{RULE}\n{details}",
+        "\n".join(lines),
+        markup=InlineKeyboardMarkup(buttons),
+        parse_mode="HTML",
     )
 
 
@@ -1738,18 +1844,60 @@ async def guild(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, context.application.bot_data["game"].guild_info, _uid(update))
     if result is None:
         return
+    role_icons = {"leader": "👑", "officer": "⭐", "member": "👤"}
     if result["guild"]:
         g = result["guild"]
-        lines = [f"🏰 {g['name'].upper()}", RULE, f"Level {g['level']} · {g['xp']:,} XP", "", "✦ MEMBERS"]
-        lines.extend(f"• {m['display_name']}" for m in result["members"])
-        lines.extend(["", RULE, "💡 /guild_donate · /guild_raid · /guild_kick"])
-    else:
-        lines = ["🏰 GUILDS", RULE, "No guild joined.", "", "✦ AVAILABLE GUILDS"]
+        lines = [
+            f"🏰 <b>{escape(str(g['name']).upper())}</b>",
+            RULE,
+            f"Level <b>{g['level']}</b> · {g['xp']:,} XP · 🏦 {int(g.get('coins') or 0):,} coins",
+            "",
+            "✦ <b>MEMBERS</b>",
+        ]
         lines.extend(
-            f"{x['id']}. {x['name']} · Lv {x['level']} · {x['members']} members" for x in result["guilds"]
+            f"{role_icons.get(str(m.get('role', 'member')), '👤')} {escape(str(m['display_name']))}"
+            for m in result["members"]
         )
-        lines.extend(["", RULE, "💡 /guild_create <name> · /guild_join <id>"])
-    await _reply_visual(update, "guild", "\n".join(lines))
+        lines.extend(["", RULE, "💡 Donate coins to fill the treasury and level up your guild."])
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🏦 Treasury", callback_data="gl:treasury"),
+                    InlineKeyboardButton("⚔️ Guild Raid", callback_data="gl:raid"),
+                ],
+                [
+                    InlineKeyboardButton("💠 Donate", callback_data="gl:donate"),
+                    InlineKeyboardButton("⚙️ Manage", callback_data="gl:manage"),
+                ],
+                [InlineKeyboardButton("🏠 Hub", callback_data="m:home")],
+            ]
+        )
+        await _reply_visual(
+            update, "guild", "\n".join(lines), markup=markup, parse_mode="HTML"
+        )
+        return
+    lines = ["🏰 <b>GUILDS</b>", RULE, "You are not in a guild.", "", "✦ <b>AVAILABLE GUILDS</b>"]
+    buttons = []
+    if result["guilds"]:
+        for entry in result["guilds"][:6]:
+            lines.append(
+                f"• <b>{escape(str(entry['name']))}</b> · Lv {entry['level']} · {entry['members']} members"
+            )
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"Join · {entry['name']}", callback_data=f"gl:join:{entry['id']}"
+                    )
+                ]
+            )
+    else:
+        lines.append("No guilds yet. Be the first to create one.")
+    buttons.append([InlineKeyboardButton("➕ Create Guild", callback_data="gl:create")])
+    buttons.append([InlineKeyboardButton("🏠 Hub", callback_data="m:home")])
+    lines.extend(["", RULE, "💡 Create your own guild or join an existing one."])
+    await _reply_visual(
+        update, "guild", "\n".join(lines), markup=InlineKeyboardMarkup(buttons), parse_mode="HTML"
+    )
 
 
 @_protected
@@ -1850,21 +1998,46 @@ async def guild_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 @_protected
 async def raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await _call(update, context.application.bot_data["game"].raid_status)
-    if result is not None:
-        boss = result["boss"]
-        lines = [
-            "╭─『 WORLD RAID 』",
-            RULE,
-            f"👹 {boss['name']} · Cycle {boss['cycle']}",
-            f"❤️ HP {_bar(int(boss['hp']), int(boss['max_hp']), 10)} {boss['hp']:,}/{boss['max_hp']:,}",
-            "",
-            "🏆 Top hunters:",
-        ]
+    if result is None:
+        return
+    boss = result["boss"]
+    lines = [
+        f"👹 <b>WORLD BOSS · {escape(str(boss['name']).upper())}</b>",
+        RULE,
+        f"<i>{escape(str(boss.get('description', 'A rift terror awakens.')))}</i>",
+        "",
+        f"❤️ <code>{_bar(int(boss['hp']), int(boss['max_hp']), 12)}</code>",
+        f"   <b>{int(boss['hp']):,}</b> / {int(boss['max_hp']):,} HP · Cycle {boss['cycle']}",
+        "",
+        "🏆 <b>TOP DAMAGE</b>",
+    ]
+    if result["top"]:
         lines.extend(
-            f"{i}. {p['display_name']} · {p['total_damage']:,}" for i, p in enumerate(result["top"], 1)
+            f"{i}. {escape(str(row['display_name']))} — <b>{int(row['total_damage']):,}</b>"
+            for i, row in enumerate(result["top"], 1)
         )
-        lines.extend(["", RULE, "💡 /raid_attack · 20 energy · 60 min cooldown"])
-        await _reply_visual(update, "boss_raid", "\n".join(lines))
+    else:
+        lines.append("No strikes yet. Be the first.")
+    lines.extend(["", RULE, "💡 Each strike costs 20⚡ and has a 60 minute cooldown."])
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⚔️ Attack · 20⚡", callback_data="rb:attack"),
+                InlineKeyboardButton("📊 Rank", callback_data="rb:rank"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="rb:refresh"),
+                InlineKeyboardButton("🏠 Hub", callback_data="m:home"),
+            ],
+        ]
+    )
+    await _reply_visual(
+        update,
+        str(boss.get("art") or "boss_raid"),
+        "\n".join(lines),
+        markup=markup,
+        parse_mode="HTML",
+    )
 
 
 @_protected
@@ -1916,29 +2089,54 @@ async def tournament_claim(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 @_protected
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        offset = int(context.args[0]) * 10 if context.args else 0
+        page = int(context.args[0]) if context.args else 1
     except ValueError as exc:
         raise GameError("Usage: /market [page_number].") from exc
-    if offset < 0:
+    if page < 1:
         raise GameError("Page number must be positive.")
+    offset = (page - 1) * 10
     result = await _call(update, context.application.bot_data["market"].browse, _uid(update), offset)
-    if result is not None:
-        lines = [
-            "🏪 HUNTER MARKET",
-            RULE,
-            f"📦 {result['total']} active listings · Page {offset // 10 + 1}",
-            "",
-        ]
-        if result["items"]:
-            lines.extend(
-                f"#{x['id']} {x['item_name']} ×{x['quantity']}\n"
-                f"   🪙 {x['price']:,} · {x['seller_name']}"
-                for x in result["items"]
+    if result is None:
+        return
+    lines = [
+        "🏪 <b>HUNTER MARKET</b>",
+        RULE,
+        f"📦 {result['total']} active listings · Page {page}",
+        "",
+    ]
+    buttons = []
+    if result["items"]:
+        for listing in result["items"]:
+            lines.append(
+                f"#{listing['id']} <b>{escape(str(listing['item_name']))}</b> ×{listing['quantity']}\n"
+                f"   🪙 {listing['price']:,} · {escape(str(listing['seller_name']))}"
             )
-        else:
-            lines.append("No listings on this page.")
-        lines.extend(["", RULE, "💡 /market_buy <id> · /market_list · /market <page>"])
-        await _reply_visual(update, "market", "\n".join(lines))
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"Buy #{listing['id']} · {listing['price']:,}",
+                        callback_data=f"mk:{listing['id']}",
+                    )
+                ]
+            )
+    else:
+        lines.append("No listings on this page.")
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data="m:market"))
+    if offset + 10 < int(result["total"]):
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data="m:market"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([_hub_button()])
+    lines.extend(["", RULE, "💡 Sell with /market_list <item> <qty> <price>."])
+    await _reply_visual(
+        update,
+        "market",
+        "\n".join(lines),
+        markup=InlineKeyboardMarkup(buttons),
+        parse_mode="HTML",
+    )
 
 
 @_protected
@@ -2139,6 +2337,621 @@ async def admin_resolve_matches(update: Update, context: ContextTypes.DEFAULT_TY
         await update.effective_message.reply_text(f"Resolved {count} due tournament match(es).")
 
 
+def _hub_button(label: str = "🏠 Hub") -> InlineKeyboardButton:
+    return InlineKeyboardButton(label, callback_data="m:home")
+
+
+async def _cb_edit(query, text: str, markup: InlineKeyboardMarkup | None = None, parse_mode: str | None = None) -> None:
+    try:
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=parse_mode)
+    except BadRequest:
+        try:
+            await query.edit_message_caption(caption=_trim_caption(text, 1000), reply_markup=markup, parse_mode=parse_mode)
+        except BadRequest:
+            logger.info("Could not update callback screen; leaving it in place")
+
+
+def _gacha_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(f"✨ Summon 1× · {GACHA_COST}🔮", callback_data="ga:pull:1"),
+                InlineKeyboardButton(f"✨ Summon 10× · {GACHA_TEN_COST}🔮", callback_data="ga:pull:10"),
+            ],
+            [
+                InlineKeyboardButton("📚 Collection", callback_data="ga:collection"),
+                InlineKeyboardButton("📊 Rates", callback_data="ga:rates"),
+            ],
+            [_hub_button()],
+        ]
+    )
+
+
+def _gacha_text(collection: dict) -> str:
+    rates = " · ".join(f"{rank} {GACHA_WEIGHTS[rank]:g}%" for rank in GACHA_RANKS)
+    return (
+        "✨ <b>SHADOW SUMMON</b>\n"
+        f"{RULE}\n\n"
+        f"🔮 Essence <b>{collection['essence']:,}</b> · Pity <b>{collection['pity']}/{GACHA_PITY}</b>\n"
+        f"👥 Collected <b>{collection['owned']}</b> / {collection['total']}\n"
+        f"❤️ +{collection['bonus_hp']} HP · 🗡 +{collection['bonus_atk']} ATK\n\n"
+        "✦ <b>DROP RATES</b>\n"
+        f"{rates}\n\n"
+        f"1× · <b>{GACHA_COST}</b> essence · 10× · <b>{GACHA_TEN_COST}</b> essence\n"
+        f"Guaranteed S or above every <b>{GACHA_PITY}</b> summons."
+    )
+
+
+def _bank_text(status: dict) -> str:
+    total = max(1, int(status["total"]))
+    return (
+        "🏦 <b>MONARCH BANK</b>\n"
+        f"{RULE}\n\n"
+        f"🪙 Wallet <b>{status['coins']:,}</b> coins\n"
+        f"🏦 Vault <b>{status['bank']:,}</b> coins\n"
+        f"💠 Net worth <b>{status['total']:,}</b>\n\n"
+        f"<code>{_bar(int(status['bank']), total, 12)}</code> vault share\n\n"
+        f"{RULE}\n"
+        f"💡 Transfers from {BANK_MIN_TRANSFER:,} coins. Your vault is safe from spending."
+    )
+
+
+def _bank_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⬇️ 100", callback_data="bk:dep:100"),
+                InlineKeyboardButton("⬇️ 1,000", callback_data="bk:dep:1000"),
+                InlineKeyboardButton("⬇️ All", callback_data="bk:dep:all"),
+            ],
+            [
+                InlineKeyboardButton("⬆️ 100", callback_data="bk:wd:100"),
+                InlineKeyboardButton("⬆️ 1,000", callback_data="bk:wd:1000"),
+                InlineKeyboardButton("⬆️ All", callback_data="bk:wd:all"),
+            ],
+            [_hub_button()],
+        ]
+    )
+
+
+@_protected
+async def skills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    rows = await _call(update, context.application.bot_data["game"].skills, _uid(update))
+    if rows is None:
+        return
+    owned = [row for row in rows if row["owned"]]
+    lines = [
+        "🌀 <b>SKILL CODEX</b>",
+        RULE,
+        f"Owned <b>{len(owned)}</b> / {len(rows)} skills",
+        "",
+        "✦ <b>OWNED SKILLS</b>",
+    ]
+    if owned:
+        lines.extend(
+            f"• <b>{escape(str(row['name']))}</b> [{row['rank']}] · {row['mana']}🔷 · ×{row['multiplier']}\n"
+            f"   <i>{escape(str(row['description']))}</i>"
+            for row in owned
+        )
+    else:
+        lines.append("No skills learned yet.")
+    unowned = [row for row in rows if not row["owned"]]
+    buttons = []
+    if unowned:
+        lines.extend(["", "✦ <b>SKILL SHOP</b>"])
+        for row in unowned:
+            lines.append(f"• {row['name']} [{row['rank']}] — 🪙 {int(row['price']):,}")
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"Learn {row['name']} · 🪙 {int(row['price']):,}",
+                        callback_data=f"sk:{row['id']}",
+                    )
+                ]
+            )
+    lines.extend(["", RULE, "💡 Choose skills from the battle screen with 🌀 Skills."])
+    buttons.append([_hub_button()])
+    await _reply_visual(
+        update,
+        "skills",
+        "\n".join(lines),
+        markup=InlineKeyboardMarkup(buttons),
+        parse_mode="HTML",
+    )
+
+
+@_protected
+async def gacha_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    collection = await _call(
+        update, context.application.bot_data["game"].gacha_collection, _uid(update)
+    )
+    if collection is None:
+        return
+    await _reply_visual(
+        update, "gacha", _gacha_text(collection), markup=_gacha_markup(), parse_mode="HTML"
+    )
+
+
+@_protected
+async def bank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    status = await _call(update, context.application.bot_data["game"].bank_status, _uid(update))
+    if status is None:
+        return
+    await _reply_visual(
+        update, "bank", _bank_text(status), markup=_bank_markup(), parse_mode="HTML"
+    )
+
+
+@_protected
+async def crown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    collection = await _call(
+        update, context.application.bot_data["game"].gacha_collection, _uid(update)
+    )
+    if collection is None:
+        return
+    lines = [
+        "👑 <b>CROWN COLLECTION</b>",
+        RULE,
+        f"Collected <b>{collection['owned']}</b> / {collection['total']} characters",
+        f"❤️ +{collection['bonus_hp']} HP · 🗡 +{collection['bonus_atk']} ATK",
+        "",
+        "✦ <b>RANKS</b>",
+    ]
+    buttons = []
+    for rank in GACHA_RANKS:
+        count = len(collection["by_rank"][rank])
+        total = sum(1 for char in GACHA_CHARACTERS.values() if char["rank"] == rank)
+        lines.append(f"• <b>{rank}</b> — {count}/{total}")
+        if count:
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"{rank} · {count}/{total}", callback_data=f"cr:rank:{rank}"
+                    )
+                ]
+            )
+    buttons.append([InlineKeyboardButton("👹 World Bosses", callback_data="cr:bosses")])
+    buttons.append([_hub_button()])
+    lines.extend(["", RULE, "💡 Every collected character grants permanent HP and ATK."])
+    await _reply_visual(
+        update, "crown", "\n".join(lines), markup=InlineKeyboardMarkup(buttons), parse_mode="HTML"
+    )
+
+
+@_protected
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _is_operator(update, context):
+        raise GameError("That command is not available.")
+    stats = await _call(update, context.application.bot_data["game"].admin_stats)
+    enabled = await _call(update, context.application.bot_data["game"].maintenance_enabled)
+    text = (
+        "👑 <b>ADMIN CONSOLE</b>\n"
+        f"{RULE}\n\n"
+        f"👥 Players <b>{stats['players'] if stats else 0}</b> · 🏰 Guilds <b>{stats['guilds'] if stats else 0}</b>\n"
+        f"🪙 Coins in circulation <b>{stats['coins'] if stats else 0:,}</b>\n"
+        f"🛠 Maintenance <b>{'ON' if enabled else 'OFF'}</b>\n\n"
+        f"{RULE}\n"
+        "💡 Hidden owner tools. Commands: /givecoins /ban /unban /admin_stats /admin_audit."
+    )
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📊 Refresh", callback_data="adm:stats"),
+                InlineKeyboardButton("🛠 Toggle Maint.", callback_data="adm:maint"),
+            ],
+            [
+                InlineKeyboardButton("📜 Audit", callback_data="adm:audit"),
+                InlineKeyboardButton("🪙 Grant Help", callback_data="adm:grant"),
+            ],
+            [InlineKeyboardButton("✖️ Close", callback_data="adm:close")],
+        ]
+    )
+    await _reply_visual(update, "crown", text, markup=markup, parse_mode="HTML")
+
+
+async def features_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    game: GameService = context.application.bot_data["game"]
+    data = query.data
+    prefix, _, rest = data.partition(":")
+    try:
+        if prefix == "d":
+            if rest == "weekly":
+                result = await asyncio.to_thread(game.weekly, query.from_user.id)
+                await query.answer()
+                await _cb_edit(
+                    query,
+                    f"📅 <b>WEEKLY REWARD</b>\n{RULE}\n\n🪙 +{result['coins']:,} coins\n"
+                    f"Week {result['week']}\n\n{RULE}\n💡 Come back next week.",
+                    InlineKeyboardMarkup([[_hub_button()]]),
+                    parse_mode="HTML",
+                )
+            else:
+                result = await asyncio.to_thread(game.daily_status, query.from_user.id)
+                claim = "Claimed today" if result["claimed_today"] else "Ready to claim"
+                await query.answer()
+                await _cb_edit(
+                    query,
+                    f"📊 <b>DAILY STATUS</b>\n{RULE}\n\n{claim}\n"
+                    f"🔥 Streak {result['streak']} day(s) · Next {result['next_streak']}\n"
+                    f"⚡ {result['energy']}/{result['max_energy']}\n\n{RULE}",
+                    InlineKeyboardMarkup([[_hub_button()]]),
+                    parse_mode="HTML",
+                )
+            return
+        if prefix == "q":
+            result = await asyncio.to_thread(game.claim_quest, query.from_user.id, rest)
+            await query.answer(f"+{result['coins']} coins · +{result['xp']} XP", show_alert=False)
+            await _cb_edit(
+                query,
+                f"🎁 <b>OBJECTIVE CLAIMED</b>\n{RULE}\n\n🪙 +{result['coins']:,} coins\n"
+                f"⭐ +{result['xp']} XP\n\n{RULE}",
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("📜 Quests", callback_data="m:quests"), _hub_button()]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        if prefix == "s":
+            item_id, _, raw_qty = rest.partition(":")
+            quantity = int(raw_qty or "1")
+            result = await asyncio.to_thread(game.buy_item, query.from_user.id, item_id, quantity)
+            await query.answer(f"Bought {result['quantity']}× {result['item']}", show_alert=False)
+            await _cb_edit(
+                query,
+                f"✅ <b>PURCHASE COMPLETE</b>\n{RULE}\n\n"
+                f"📦 {result['quantity']}× {escape(result['item'])}\n"
+                f"🪙 −{result['cost']:,} coins\n\n{RULE}",
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🛒 Shop", callback_data="m:shop"), _hub_button()]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        if prefix == "i":
+            result = await asyncio.to_thread(game.use_energy_item, query.from_user.id, rest)
+            await query.answer(f"+{result['gained']} energy", show_alert=False)
+            await _cb_edit(
+                query,
+                f"⚡ <b>ENERGY RESTORED</b>\n{RULE}\n\n+{result['gained']} energy\n"
+                f"Energy now {result['energy']}\n\n{RULE}",
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🎒 Inventory", callback_data="m:inventory"), _hub_button()]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        if prefix == "sk":
+            result = await asyncio.to_thread(game.learn_skill, query.from_user.id, rest)
+            await query.answer(f"Learned {result['name']}", show_alert=False)
+            await _cb_edit(
+                query,
+                f"🌀 <b>SKILL LEARNED</b>\n{RULE}\n\n"
+                f"<b>{escape(result['name'])}</b> [{result['rank']}]\n"
+                f"🪙 −{result['price']:,} coins\n\n{RULE}\n"
+                "💡 Use it in battle with the 🌀 Skills button.",
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🌀 Skill Codex", callback_data="m:skills"), _hub_button()]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        if prefix == "ga":
+            if rest == "collection":
+                collection = await asyncio.to_thread(game.gacha_collection, query.from_user.id)
+                await query.answer()
+                lines = [
+                    "📚 <b>SUMMON COLLECTION</b>",
+                    RULE,
+                    f"Collected <b>{collection['owned']}</b> / {collection['total']}",
+                    "",
+                ]
+                for rank in GACHA_RANKS:
+                    chars = collection["by_rank"][rank]
+                    if chars:
+                        lines.append(
+                            f"<b>{rank}</b> · "
+                            + ", ".join(
+                                f"{escape(str(char['name']))}×{char['copies']}" for char in chars
+                            )
+                        )
+                lines.extend(["", RULE, f"Pity <b>{collection['pity']}/{GACHA_PITY}</b>"])
+                await _cb_edit(query, "\n".join(lines), _gacha_markup(), parse_mode="HTML")
+                return
+            if rest == "rates":
+                rates = "\n".join(
+                    f"{rank} — <b>{GACHA_WEIGHTS[rank]:g}%</b>" for rank in GACHA_RANKS
+                )
+                await query.answer()
+                await _cb_edit(
+                    query,
+                    f"📊 <b>SUMMON RATES</b>\n{RULE}\n\n{rates}\n\n"
+                    f"{RULE}\nPity guarantees S+ every {GACHA_PITY} summons.",
+                    _gacha_markup(),
+                    parse_mode="HTML",
+                )
+                return
+            _, _, count_raw = rest.partition(":")
+            count = int(count_raw or "1")
+            result = await asyncio.to_thread(game.gacha_pull, query.from_user.id, count)
+            best = max(result["results"], key=lambda r: GACHA_RANKS.index(r["rank"]))
+            await query.answer(f"Best pull: {best['name']} [{best['rank']}]", show_alert=False)
+            lines = [f"✨ <b>SUMMON ×{len(result['results'])}</b>", RULE, ""]
+            for pull in result["results"]:
+                tag = "🆕" if pull["new"] else "↻"
+                lines.append(
+                    f"{tag} <b>{escape(str(pull['name']))}</b> [{pull['rank']}]\n"
+                    f"   <i>{escape(str(pull['title']))}</i>"
+                )
+            lines.extend(
+                [
+                    "",
+                    RULE,
+                    f"🔮 −{result['cost']} essence · Pity {result['pity']}/{GACHA_PITY}",
+                    f"❤️ +{result['bonus_hp']} HP · 🗡 +{result['bonus_atk']} ATK",
+                ]
+            )
+            await _cb_edit(query, "\n".join(lines), _gacha_markup(), parse_mode="HTML")
+            return
+        if prefix == "bk":
+            action, _, raw_amount = rest.partition(":")
+            if raw_amount == "all":
+                status = await asyncio.to_thread(game.bank_status, query.from_user.id)
+                amount = status["coins"] if action == "dep" else status["bank"]
+            else:
+                amount = int(raw_amount)
+            if amount < BANK_MIN_TRANSFER:
+                await query.answer(
+                    f"Minimum transfer is {BANK_MIN_TRANSFER:,} coins.", show_alert=True
+                )
+                return
+            if action == "dep":
+                await asyncio.to_thread(game.bank_deposit, query.from_user.id, amount)
+            else:
+                await asyncio.to_thread(game.bank_withdraw, query.from_user.id, amount)
+            status = await asyncio.to_thread(game.bank_status, query.from_user.id)
+            await query.answer(f"{'Deposited' if action == 'dep' else 'Withdrew'} {amount:,} coins")
+            await _cb_edit(query, _bank_text(status), _bank_markup(), parse_mode="HTML")
+            return
+        if prefix == "gl":
+            action, _, argument = rest.partition(":")
+            if action == "join":
+                guild = await asyncio.to_thread(game.join_guild, query.from_user.id, int(argument))
+                await query.answer(f"Joined {guild['name']}", show_alert=False)
+                await _cb_edit(
+                    query,
+                    f"🏰 <b>GUILD JOINED</b>\n{RULE}\n\n<b>{escape(guild['name'])}</b>\n"
+                    f"Level {guild['level']}\n\n{RULE}",
+                    InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("🏰 Guild", callback_data="m:guild"), _hub_button()]]
+                    ),
+                    parse_mode="HTML",
+                )
+                return
+            if action == "upgrade":
+                result = await asyncio.to_thread(game.guild_upgrade, query.from_user.id)
+                await query.answer(f"{result['name']} is now level {result['level']}")
+            treasury = await asyncio.to_thread(game.guild_treasury, query.from_user.id)
+            if action == "donate":
+                await query.answer(
+                    "Use /guild_donate <coins> to fill the treasury.", show_alert=True
+                )
+                return
+            if action == "manage":
+                await query.answer(
+                    "Commands: /guild_promote /guild_demote /guild_kick /guild_rename /guild_disband",
+                    show_alert=True,
+                )
+                return
+            if action == "raid":
+                await query.answer("Use /guild_raid to strike your guild boss.", show_alert=True)
+                return
+            await query.answer()
+            lines = [
+                f"🏦 <b>{escape(str(treasury['name']).upper())} · TREASURY</b>",
+                RULE,
+                f"Level <b>{treasury['level']}</b> · {treasury['xp']:,} XP",
+                f"👥 {treasury['members']} members · Role {treasury['role']}",
+                "",
+                f"🏦 Vault <b>{treasury['coins']:,}</b> coins",
+                f"⬆️ Upgrade cost <b>{treasury['upgrade_cost']:,}</b> coins",
+                "",
+                RULE,
+                "💡 Donate with /guild_donate <coins>.",
+            ]
+            markup = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("⬆️ Upgrade Guild", callback_data="gl:upgrade"),
+                        InlineKeyboardButton("💠 Donate", callback_data="gl:donate"),
+                    ],
+                    [
+                        InlineKeyboardButton("🏰 Guild", callback_data="m:guild"),
+                        _hub_button(),
+                    ],
+                ]
+            )
+            await _cb_edit(query, "\n".join(lines), markup, parse_mode="HTML")
+            return
+        if prefix == "rb":
+            if rest == "attack":
+                result = await asyncio.to_thread(game.raid_attack, query.from_user.id)
+                await query.answer(f"Strike dealt {result['damage']:,} damage")
+                status = await asyncio.to_thread(game.raid_status)
+                boss = status["boss"]
+                extra = " 💀 Boss defeated! A new boss has appeared." if result["defeated"] else ""
+                await _cb_edit(
+                    query,
+                    f"⚔️ <b>STRIKE DELIVERED</b>\n{RULE}\n\n"
+                    f"👹 {escape(str(result['boss']))}\n"
+                    f"💥 <b>{result['damage']:,}</b> damage\n"
+                    f"🪙 +{result['reward']:,} coins{extra}\n\n"
+                    f"❤️ <code>{_bar(int(status['boss']['hp']), int(status['boss']['max_hp']), 12)}</code>\n"
+                    f"   {int(status['boss']['hp']):,} / {int(status['boss']['max_hp']):,} HP",
+                    InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton("⚔️ Attack", callback_data="rb:attack"),
+                                InlineKeyboardButton("📊 Rank", callback_data="rb:rank"),
+                            ],
+                            [_hub_button()],
+                        ]
+                    ),
+                    parse_mode="HTML",
+                )
+                return
+            status = await asyncio.to_thread(game.raid_status)
+            if rest == "rank":
+                boss = status["boss"]
+                lines = [f"📊 <b>DAMAGE RANK · {escape(str(boss['name']).upper())}</b>", RULE, ""]
+                if status["top"]:
+                    lines.extend(
+                        f"{i}. {escape(str(row['display_name']))} — <b>{int(row['total_damage']):,}</b> "
+                        f"({row['hits']} hits)"
+                        for i, row in enumerate(status["top"], 1)
+                    )
+                else:
+                    lines.append("No damage recorded yet.")
+                await query.answer()
+                await _cb_edit(
+                    query,
+                    "\n".join(lines),
+                    InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("◀️ Back", callback_data="rb:refresh"), _hub_button()]]
+                    ),
+                    parse_mode="HTML",
+                )
+                return
+            boss = status["boss"]
+            await query.answer()
+            await _cb_edit(
+                query,
+                f"👹 <b>WORLD BOSS · {escape(str(boss['name']).upper())}</b>\n{RULE}\n\n"
+                f"{int(boss['hp']):,} / {int(boss['max_hp']):,} HP · Cycle {boss['cycle']}\n\n"
+                f"<code>{_bar(int(boss['hp']), int(boss['max_hp']), 12)}</code>",
+                InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton("⚔️ Attack · 20⚡", callback_data="rb:attack"),
+                            InlineKeyboardButton("📊 Rank", callback_data="rb:rank"),
+                        ],
+                        [_hub_button()],
+                    ]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        if prefix == "cr":
+            action, _, argument = rest.partition(":")
+            if action == "bosses":
+                lines = ["👹 <b>WORLD BOSS GALLERY</b>", RULE, ""]
+                for index, boss in enumerate(WORLD_BOSSES, 1):
+                    status = await asyncio.to_thread(game.raid_status)
+                    lines.append(
+                        f"{index}. <b>{boss['name']}</b>\n   <i>{boss['description']}</i>"
+                    )
+                lines.extend(["", RULE, f"Current: {escape(str(status['boss']['name']))}"])
+                await query.answer()
+                await _cb_edit(
+                    query,
+                    "\n".join(lines),
+                    InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("◀️ Back", callback_data="m:crown"), _hub_button()]]
+                    ),
+                    parse_mode="HTML",
+                )
+                return
+            collection = await asyncio.to_thread(game.gacha_collection, query.from_user.id)
+            chars = collection["by_rank"].get(argument, [])
+            lines = [f"👑 <b>{argument} COLLECTION</b>", RULE, ""]
+            if chars:
+                lines.extend(
+                    f"• <b>{escape(str(char['name']))}</b> ×{char['copies']}\n"
+                    f"   <i>{escape(str(char['title']))}</i>"
+                    for char in chars
+                )
+            else:
+                lines.append("No characters from this rank yet. Summon with /gacha.")
+            await query.answer()
+            await _cb_edit(
+                query,
+                "\n".join(lines),
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("◀️ Back", callback_data="m:crown"), _hub_button()]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+        if prefix == "adm":
+            if not await _is_operator(update, context):
+                await query.answer("Owner only.", show_alert=True)
+                return
+            if rest == "maint":
+                enabled = await asyncio.to_thread(game.maintenance_enabled)
+                await asyncio.to_thread(game.set_maintenance, query.from_user.id, not enabled)
+                await query.answer(f"Maintenance {'OFF' if enabled else 'ON'}")
+                await admin_command(update, context)
+                return
+            if rest == "audit":
+                rows = await asyncio.to_thread(game.admin_audit, 10)
+                lines = ["📜 <b>RECENT AUDIT</b>", RULE, ""]
+                lines.extend(
+                    f"• {escape(str(row['action']))} · {row['actor_id']} → {row['target_id'] or '—'}"
+                    for row in rows
+                ) if rows else lines.append("No audit entries.")
+                await query.answer()
+                await _cb_edit(
+                    query,
+                    "\n".join(lines),
+                    InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("◀️ Back", callback_data="adm:stats"), _hub_button()]]
+                    ),
+                    parse_mode="HTML",
+                )
+                return
+            if rest == "grant":
+                await query.answer(
+                    "Use /givecoins <player_id> <amount> to grant coins.", show_alert=True
+                )
+                return
+            if rest == "close":
+                await query.answer()
+                await _cb_edit(query, "👑 Admin console closed.")
+                return
+            await query.answer()
+            await admin_command(update, context)
+            return
+        if prefix == "mk":
+            result = await asyncio.to_thread(
+                context.application.bot_data["market"].buy, query.from_user.id, int(rest)
+            )
+            await query.answer(
+                f"Bought {result['quantity']}× {result['item_name']}", show_alert=False
+            )
+            await _cb_edit(
+                query,
+                f"✅ <b>MARKET PURCHASE</b>\n{RULE}\n\n"
+                f"📦 {result['quantity']}× {escape(str(result['item_name']))}\n"
+                f"🪙 −{result['price']:,} coins\n\n{RULE}",
+                InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏪 Market", callback_data="m:market"), _hub_button()]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+    except GameError as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    except Exception:
+        logger.exception("Feature callback failed; update=%s", update.update_id)
+        try:
+            await query.answer("Something went wrong. Try again.", show_alert=True)
+        except BadRequest:
+            pass
+        return
+    await query.answer("Unknown action.", show_alert=True)
+
+
 COMMANDS = {
     "start": start,
     "help": help_command,
@@ -2225,6 +3038,11 @@ COMMANDS = {
     "rules": rules_command,
     "achievements": achievements_command,
     "hunt": hunt,
+    "skills": skills_command,
+    "gacha": gacha_command,
+    "bank": bank_command,
+    "crown": crown_command,
+    "admin": admin_command,
     "adventure": hunt,
     "flee": flee,
     "escape": flee,
@@ -2244,88 +3062,32 @@ COMMANDS = {
 PUBLIC_COMMANDS = [
     ("start", "Create your hunter file"),
     ("menu", "Open the hunter hub"),
-    ("help", "Show commands"),
-    ("profile", "View your hunter stats"),
+    ("profile", "View your hunter card"),
     ("class", "Choose your awakening class"),
-    ("daily", "Claim daily reward"),
-    ("daily_status", "Check reward and streak"),
-    ("weekly", "Claim weekly reward"),
-    ("give", "Send coins to a hunter"),
-    ("codex", "Browse classes, dungeons and items"),
-    ("quests", "View daily objectives"),
-    ("quest_claim", "Claim a daily objective"),
-    ("battle", "Enter a turn-based dungeon"),
-    ("battle_status", "Refresh your active battle"),
-    ("shop", "View hunter supplies"),
-    ("buy", "Buy an item"),
-    ("inventory", "View your items"),
+    ("hunt", "Preview a wild enemy and fight"),
+    ("battle", "Enter a dungeon"),
+    ("explore", "Explore for coins and supplies"),
+    ("travel", "View regions and unlocks"),
+    ("daily", "Claim daily supplies"),
+    ("quests", "View and claim daily objectives"),
+    ("skills", "Skill codex and skill shop"),
+    ("gacha", "Summon Solo Leveling characters"),
+    ("inventory", "Open your satchel"),
+    ("shop", "Buy hunter supplies"),
+    ("market", "Trade with other hunters"),
+    ("guild", "Guild hub and treasury"),
+    ("raid", "World boss battle"),
+    ("bank", "Store coins safely"),
+    ("crown", "View your character collection"),
     ("companions", "View your echo allies"),
-    ("extract", "Summon an echo ally"),
-    ("equip", "Equip an echo companion"),
-    ("use", "Use an energy shard"),
-    ("leaderboard", "Top hunters"),
-    ("guild", "View or browse guilds"),
-    ("guild_create", "Create a guild"),
-    ("guild_join", "Join a guild"),
-    ("guild_leave", "Leave your guild"),
-    ("guild_disband", "Disband your guild"),
-    ("guild_donate", "Donate guild XP"),
-    ("guild_promote", "Promote a guild officer"),
-    ("guild_demote", "Demote a guild officer"),
-    ("guild_kick", "Remove a guild member"),
-    ("guild_rename", "Rename your guild"),
-    ("raid", "View the world raid"),
-    ("raid_attack", "Attack the world boss"),
-    ("tournament", "Weekly arena standings"),
-    ("tournament_join", "Enter this week's arena"),
-    ("tournament_claim", "Claim an arena prize"),
-    ("market", "Browse item listings"),
-    ("market_list", "List an item for sale"),
-    ("market_buy", "Buy a market listing"),
-    ("market_cancel", "Cancel a market listing"),
-    ("duel", "Challenge a hunter"),
-    ("duel_accept", "Accept a duel"),
-    ("arena", "PvP rating leaderboard"),
-    ("tournament_slots", "View ten tournament slots"),
-    ("tournament_start", "Schedule tournament matches"),
-    ("tournament_checkin", "Check in to a match"),
-    ("tournament_matches", "View your tournament matches"),
-    ("guild_raid", "Attack your guild boss"),
     ("team", "Manage your six-member team"),
-    ("team_power", "View combined team power"),
-    ("economy_history", "View recent economy events"),
+    ("arena", "PvP rating leaderboard"),
+    ("tournament", "Weekly arena standings"),
+    ("leaderboard", "Top hunters and guilds"),
+    ("codex", "Browse classes, dungeons and items"),
+    ("links", "Channel, group and support"),
+    ("help", "Commands and quick buttons"),
     ("about", "Learn about Monarch"),
-    ("userid", "Show your user ID and chat ID"),
-    ("query", "Send a question or bug report to admins"),
-    ("travel", "View regions and unlock levels"),
-    ("explore", "Explore for coins, essence and items"),
-    ("stats", "View combat stats or look up a class"),
-    ("data", "Search the game codex"),
-    ("nickname", "Change your hunter nickname"),
-    ("bag", "Open your inventory"),
-    ("top", "View the leaderboard"),
-    ("myteam", "Manage your team"),
-    ("mycharacters", "View your echo companions"),
-    ("links", "Show channel, group and support links"),
-    ("ping", "Check bot latency"),
-    ("ask", "Ask the assistant about commands"),
-    ("rules", "Read the community rules"),
-    ("achievements", "Track your milestone unlocks"),
-    ("leaderboard", "Top hunters (level, xp, coins, arena, wins, guild)"),
-    ("topexp", "Experience leaderboard"),
-    ("toparena", "Arena rating leaderboard"),
-    ("topwins", "Arena wins leaderboard"),
-    ("topguild", "Guild leaderboard"),
-    ("wealth", "Richest hunters"),
-    ("status", "Open your hunter profile"),
-    ("stamina", "Check energy"),
-    ("balance", "Check coins and essence"),
-    ("settings", "View links and settings"),
-    ("hunt", "Preview a wild enemy: Battle or Flee"),
-    ("adventure", "Hunt alias"),
-    ("flee", "Escape your active battle"),
-    ("escape", "Escape alias"),
-    ("npc", "List enemies in a region"),
 ]
 
 
@@ -2426,7 +3188,26 @@ async def _render_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     elif action == "raid":
         result = await asyncio.to_thread(context.application.bot_data["game"].raid_status)
         b = result["boss"]
-        text = f"WORLD RAID · {b['name']}\nHP {b['hp']:,}/{b['max_hp']:,}\nUse /raid_attack to strike."
+        text = (
+            f"WORLD RAID · {b['name']}\n{RULE}\n"
+            f"❤️ {_bar(int(b['hp']), int(b['max_hp']), 12)}\n"
+            f"   {b['hp']:,} / {b['max_hp']:,} HP · Cycle {b['cycle']}\n\n"
+            f"<i>{escape(str(b.get('description', 'A rift terror awakens.')))}</i>"
+        )
+        await query.edit_message_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("⚔️ Attack · 20⚡", callback_data="rb:attack"),
+                        InlineKeyboardButton("📊 Rank", callback_data="rb:rank"),
+                    ],
+                    [InlineKeyboardButton("🏠 Hub", callback_data="m:home")],
+                ]
+            ),
+        )
+        return
     elif action == "tournament":
         result = await asyncio.to_thread(
             context.application.bot_data["tournament"].status, query.from_user.id
@@ -2457,6 +3238,13 @@ async def _menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "m:travel": travel_command,
         "m:explore": explore_command,
         "m:hunt": hunt,
+        "m:shop": shop,
+        "m:quests": quests,
+        "m:skills": skills_command,
+        "m:gacha": gacha_command,
+        "m:bank": bank_command,
+        "m:crown": crown_command,
+        "m:leaderboard": leaderboard,
     }
     if query.data in rich:
         try:
@@ -2554,5 +3342,8 @@ def build_application(settings: Settings, game: GameService) -> Application:
     application.add_handler(CallbackQueryHandler(hunt_callback, pattern=r"^h:"))
     application.add_handler(CallbackQueryHandler(_menu_callback, pattern=r"^m:"))
     application.add_handler(CallbackQueryHandler(_codex_callback, pattern=r"^c:"))
+    application.add_handler(
+        CallbackQueryHandler(features_callback, pattern=r"^(d|q|s|i|sk|ga|bk|gl|rb|cr|adm|mk):")
+    )
     application.add_error_handler(_on_error)
     return application

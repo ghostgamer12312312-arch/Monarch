@@ -22,14 +22,15 @@ def test_all_commands_and_interactive_callbacks_are_registered(game):
     assert {name for name, _ in PUBLIC_COMMANDS} <= registered
     assert {
         "codex",
-        "daily_status",
-        "quest_claim",
-        "guild_leave",
-        "guild_disband",
-        "tournament_claim",
-        "market_list",
-        "market_buy",
-        "market_cancel",
+        "hunt",
+        "quests",
+        "guild",
+        "tournament",
+        "market",
+        "skills",
+        "gacha",
+        "bank",
+        "crown",
     } <= {name for name, _ in PUBLIC_COMMANDS}
     assert not {
         "admin_stats",

@@ -154,3 +154,248 @@ REGIONS: dict[str, dict[str, object]] = {
         "description": "A black keep ruled by rift tyrants. Only veterans survive.",
     },
 }
+
+
+SKILLS: dict[str, dict[str, object]] = {
+    "quick_strike": {
+        "name": "Quick Strike",
+        "rank": "E",
+        "price": 0,
+        "mana": 4,
+        "multiplier": 1.20,
+        "effect": "none",
+        "description": "A fast opening slash. Free for every hunter.",
+    },
+    "shadow_cut": {
+        "name": "Shadow Cut",
+        "rank": "F",
+        "price": 120,
+        "mana": 6,
+        "multiplier": 1.35,
+        "effect": "lifesteal",
+        "description": "Drain a little life from the target.",
+    },
+    "ember_slash": {
+        "name": "Ember Slash",
+        "rank": "C",
+        "price": 300,
+        "mana": 8,
+        "multiplier": 1.50,
+        "effect": "burn",
+        "description": "Set the enemy ablaze for 3 turns.",
+    },
+    "venom_edge": {
+        "name": "Venom Edge",
+        "rank": "B",
+        "price": 650,
+        "mana": 9,
+        "multiplier": 1.55,
+        "effect": "poison",
+        "description": "Coat your blade in rift venom for 3 turns.",
+    },
+    "blood_rush": {
+        "name": "Blood Rush",
+        "rank": "D",
+        "price": 1100,
+        "mana": 12,
+        "multiplier": 1.80,
+        "effect": "lifesteal",
+        "description": "A reckless charge that heals you for the damage dealt.",
+    },
+    "quake_breaker": {
+        "name": "Quake Breaker",
+        "rank": "A",
+        "price": 1800,
+        "mana": 14,
+        "multiplier": 2.00,
+        "effect": "stun",
+        "description": "Shatter the ground and stun the enemy.",
+    },
+    "frost_bind": {
+        "name": "Frost Bind",
+        "rank": "S",
+        "price": 2800,
+        "mana": 16,
+        "multiplier": 2.00,
+        "effect": "stun",
+        "description": "Freeze the enemy in place for a turn.",
+    },
+    "soul_reap": {
+        "name": "Soul Reap",
+        "rank": "SS",
+        "price": 4200,
+        "mana": 18,
+        "multiplier": 2.40,
+        "effect": "lifesteal",
+        "description": "Tear at the soul and recover a portion as HP.",
+    },
+    "void_pierce": {
+        "name": "Void Pierce",
+        "rank": "SSS",
+        "price": 6000,
+        "mana": 20,
+        "multiplier": 2.60,
+        "effect": "poison",
+        "description": "A void-charged thrust that poisons deeply.",
+    },
+    "monarch_verdict": {
+        "name": "Monarch's Verdict",
+        "rank": "SR",
+        "price": 9000,
+        "mana": 24,
+        "multiplier": 3.00,
+        "effect": "burn",
+        "description": "Pass judgement with overwhelming shadow flame.",
+    },
+    "shadow_domain": {
+        "name": "Shadow Domain",
+        "rank": "SP",
+        "price": 14000,
+        "mana": 28,
+        "multiplier": 3.50,
+        "effect": "stun",
+        "description": "The sovereign's domain. Massive damage and a stun.",
+    },
+}
+DEFAULT_SKILL = "quick_strike"
+
+GACHA_RANKS: tuple[str, ...] = ("E", "F", "C", "B", "D", "A", "S", "SS", "SSS", "SR", "SP")
+GACHA_WEIGHTS: dict[str, float] = {
+    "E": 30.0,
+    "F": 21.0,
+    "C": 15.0,
+    "B": 11.0,
+    "D": 8.0,
+    "A": 7.0,
+    "S": 4.0,
+    "SS": 2.4,
+    "SSS": 1.0,
+    "SR": 0.4,
+    "SP": 0.2,
+}
+GACHA_BONUS: dict[str, tuple[int, int]] = {
+    "E": (1, 3),
+    "F": (2, 5),
+    "C": (3, 8),
+    "B": (5, 12),
+    "D": (7, 18),
+    "A": (10, 26),
+    "S": (15, 40),
+    "SS": (22, 60),
+    "SSS": (32, 90),
+    "SR": (45, 130),
+    "SP": (65, 200),
+}
+GACHA_COST = 25
+GACHA_TEN_COST = 225
+GACHA_PITY = 50
+
+GACHA_CHARACTERS: dict[str, dict[str, object]] = {
+    # E
+    "shadow_soldier": {"name": "Shadow Soldier", "rank": "E", "title": "Silent ranks"},
+    "shadow_beast": {"name": "Shadow Beast", "rank": "E", "title": "Feral echo"},
+    "low_orc": {"name": "Low Orc", "rank": "E", "title": "Gate fodder"},
+    "goblin_scout": {"name": "Goblin Scout", "rank": "E", "title": "Twitchy scout"},
+    "steel_fang": {"name": "Steel Fang", "rank": "E", "title": "Iron-jawed hound"},
+    # F
+    "e_rank_hunter": {"name": "E-Rank Hunter", "rank": "F", "title": "Fresh awaken"},
+    "shadow_archer": {"name": "Shadow Archer", "rank": "F", "title": "Rooftop volley"},
+    "cave_bat": {"name": "Cave Bat", "rank": "F", "title": "Echo swarm"},
+    "rift_slime": {"name": "Rift Slime", "rank": "F", "title": "Corrosive blob"},
+    "stone_golem": {"name": "Stone Golem", "rank": "F", "title": "Slow but sturdy"},
+    # C
+    "kang_taeshik": {"name": "Kang Taeshik", "rank": "C", "title": "C-Rank brawler"},
+    "kim_sangshik": {"name": "Kim Sangshik", "rank": "C", "title": "Guild striker"},
+    "hwang_dongsuk": {"name": "Hwang Dongsuk", "rank": "C", "title": "Raid saboteur"},
+    "shadow_assassin": {"name": "Shadow Assassin", "rank": "C", "title": "Killing intent"},
+    "baruka": {"name": "Baruka", "rank": "C", "title": "Ice elf chief"},
+    # B
+    "lee_joohee": {"name": "Lee Joohee", "rank": "B", "title": "Healer resolve"},
+    "park_heejin": {"name": "Park Heejin", "rank": "B", "title": "Steady support"},
+    "han_songyi": {"name": "Han Song-Yi", "rank": "B", "title": "Fast learner"},
+    "yoo_jinho": {"name": "Yoo Jinho", "rank": "B", "title": "Loyal tank"},
+    "kim_chul": {"name": "Kim Chul", "rank": "B", "title": "White Tiger blade"},
+    "shadow_mage": {"name": "Shadow Mage", "rank": "B", "title": "Arcane echo"},
+    # D
+    "hwang_dongsoo": {"name": "Hwang Dongsoo", "rank": "D", "title": "Brutal hunter"},
+    "goto_ryuji": {"name": "Goto Ryuji", "rank": "D", "title": "Rival swordsman"},
+    "min_byunggu": {"name": "Min Byung-Gu", "rank": "D", "title": "Sacred healer"},
+    "woo_jinchul": {"name": "Woo Jinchul", "rank": "D", "title": "Association shield"},
+    "shadow_knight": {"name": "Shadow Knight", "rank": "D", "title": "Armored echo"},
+    "tusk": {"name": "Tusk", "rank": "D", "title": "Orc shaman"},
+    # A
+    "cha_haein": {"name": "Cha Hae-In", "rank": "A", "title": "Dancer of blades"},
+    "baek_yoonho": {"name": "Baek Yoonho", "rank": "A", "title": "White Tiger lord"},
+    "choi_jongin": {"name": "Choi Jong-In", "rank": "A", "title": "Flame mage"},
+    "go_gunhee": {"name": "Go Gunhee", "rank": "A", "title": "Association chairman"},
+    "lim_taegyu": {"name": "Lim Tae-Gyu", "rank": "A", "title": "Shadows of speed"},
+    "kaisel": {"name": "Kaisel", "rank": "A", "title": "Wyvern mount"},
+    # S
+    "sung_jinwoo": {"name": "Sung Jinwoo", "rank": "S", "title": "Shadow monarch"},
+    "thomas_andre": {"name": "Thomas Andre", "rank": "S", "title": "Goliath"},
+    "liu_zhigang": {"name": "Liu Zhigang", "rank": "S", "title": "China's strongest"},
+    "christopher_reed": {"name": "Christopher Reed", "rank": "S", "title": "Ruler's vessel"},
+    "lennart_niermann": {"name": "Lennart Niermann", "rank": "S", "title": "Northern blade"},
+    "siddharth_bachchan": {"name": "Siddharth Bachchan", "rank": "S", "title": "Wind sage"},
+    "adam_white": {"name": "Adam White", "rank": "S", "title": "Hunter's analyst"},
+    # SS
+    "igris": {"name": "Igris", "rank": "SS", "title": "Blood-red knight"},
+    "beru": {"name": "Beru", "rank": "SS", "title": "Ant king's shadow"},
+    "iron": {"name": "Iron", "rank": "SS", "title": "Taekwondo shadow"},
+    "tank": {"name": "Tank", "rank": "SS", "title": "Bear guardian"},
+    "fangs": {"name": "Fangs", "rank": "SS", "title": "Alpha shadow"},
+    "jima": {"name": "Jima", "rank": "SS", "title": "Naga healer"},
+    # SSS
+    "bellion": {"name": "Bellion", "rank": "SSS", "title": "Shadow grand marshal"},
+    "greed": {"name": "Greed", "rank": "SSS", "title": "Devouring armor"},
+    "kandiaru": {"name": "Kandiaru", "rank": "SSS", "title": "System architect"},
+    "ant_king": {"name": "Ant King", "rank": "SSS", "title": "Island terror"},
+    # SR
+    "kamish": {"name": "Kamish", "rank": "SR", "title": "Dragon of disaster"},
+    "baran": {"name": "Baran", "rank": "SR", "title": "Demon king"},
+    "ashborn": {"name": "Ashborn", "rank": "SR", "title": "True shadow monarch"},
+    # SP
+    "monarch_of_shadows": {"name": "Monarch of Shadows", "rank": "SP", "title": "Absolute sovereign"},
+    "shadow_sovereign": {"name": "Shadow Sovereign", "rank": "SP", "title": "Beyond limits"},
+    "ruler_of_fragments": {"name": "Ruler of Fragments", "rank": "SP", "title": "Forbidden apex"},
+}
+
+WORLD_BOSSES: tuple[dict[str, object], ...] = (
+    {
+        "key": "ant_king",
+        "name": "Ant King",
+        "art": "boss_ant_king",
+        "base_hp": 250_000,
+        "hp_scale": 1.0,
+        "description": "A winged terror from the Jeju island gate.",
+    },
+    {
+        "key": "kamish",
+        "name": "Kamish",
+        "art": "boss_kamish",
+        "base_hp": 300_000,
+        "hp_scale": 1.1,
+        "description": "The dragon that erased a city in one breath.",
+    },
+    {
+        "key": "baran",
+        "name": "Baran",
+        "art": "boss_baran",
+        "base_hp": 350_000,
+        "hp_scale": 1.2,
+        "description": "Demon king of the red gate, wreathed in storm.",
+    },
+    {
+        "key": "monarch_of_shadows",
+        "name": "Monarch of Shadows",
+        "art": "boss_monarch",
+        "base_hp": 400_000,
+        "hp_scale": 1.3,
+        "description": "The absolute sovereign of the shadow army.",
+    },
+)
+RAID_BASE_HP = 250_000
+
+GUILD_UPGRADE_BASE = 500
+BANK_MIN_TRANSFER = 100
+BANK_MAX_TRANSFER = 1_000_000
